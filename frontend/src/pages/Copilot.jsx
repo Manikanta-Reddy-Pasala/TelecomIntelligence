@@ -985,19 +985,21 @@ function PatternOfLifeTab({ data, entity }) {
     return <div className="text-sm text-slate-600 text-center py-8">No pattern of life data available</div>;
   }
 
-  const hourLabels = Array.from({ length: 24 }, (_, i) => `${i}:00`);
+  const hourLabels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
   const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-  const hourlyData = (data.hourly_activity || []).map((val, i) => ({
+  const hourlyData = Array.from({ length: 24 }, (_, i) => ({
     hour: hourLabels[i],
-    events: val,
-    fill: i >= 23 || i < 6 ? '#6366f1' : i >= 9 && i < 18 ? '#22c55e' : '#f59e0b',
+    calls: (data.hourly_calls || [])[i] || 0,
+    messages: (data.hourly_messages || [])[i] || 0,
+    total: ((data.hourly_calls || [])[i] || 0) + ((data.hourly_messages || [])[i] || 0),
   }));
 
-  const weeklyData = (data.weekly_activity || []).map((val, i) => ({
-    day: dayLabels[i],
-    events: val,
-    fill: i >= 5 ? '#a855f7' : '#3b82f6',
+  const weeklyData = dayLabels.map((day, i) => ({
+    day,
+    calls: (data.weekly_calls || [])[i] || 0,
+    messages: (data.weekly_messages || [])[i] || 0,
+    total: ((data.weekly_calls || [])[i] || 0) + ((data.weekly_messages || [])[i] || 0),
   }));
 
   const routineScore = data.routine_score || 0;
@@ -1043,14 +1045,17 @@ function PatternOfLifeTab({ data, entity }) {
 
   return (
     <div className="overflow-auto max-h-[calc(100vh-280px)] space-y-5 p-1 animate-fade-in">
-      {/* Header with entity name and routine score */}
+      {/* Header with entity name, stats, and routine score */}
       <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-slate-800/60 to-slate-800/30 border border-slate-700/40">
         <div>
           <h3 className="text-lg font-bold text-slate-100">
             {entity?.name || 'Unknown'} — Pattern of Life
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Analysis period: {data.analysis_days || 30} days
+          <p className="text-xs text-slate-500 mt-1">
+            {data.analysis_days || 30} days | {data.total_calls || 0} calls | {data.total_messages || 0} messages
+            {data.peak_hour && <span> | Peak: {data.peak_hour}</span>}
+            {data.peak_day && <span> ({data.peak_day})</span>}
+            {data.avg_call_duration_sec != null && <span> | Avg call: {Math.round(data.avg_call_duration_sec / 60)}min</span>}
           </p>
         </div>
         <div className="text-right">
@@ -1107,78 +1112,82 @@ function PatternOfLifeTab({ data, entity }) {
         </div>
       </div>
 
-      {/* Hourly Activity Chart */}
+      {/* Hourly Communication Pattern */}
       <div>
         <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-          <Clock size={12} /> Hourly Activity (24h)
+          <Phone size={12} /> Hourly Communication (Calls + Messages)
         </h4>
         <div className="flex items-center gap-4 mb-2">
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-indigo-500" />
-            <span className="text-[10px] text-slate-500">Night (11PM-6AM)</span>
+            <div className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="text-[10px] text-slate-500">Calls</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-[10px] text-slate-500">Work hours (9AM-6PM)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-amber-500" />
-            <span className="text-[10px] text-slate-500">Other</span>
+            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="text-[10px] text-slate-500">Messages</span>
           </div>
         </div>
         <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/30">
-          <ResponsiveContainer width="100%" height={180}>
+          <ResponsiveContainer width="100%" height={200}>
             <BarChart data={hourlyData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis dataKey="hour" tick={{ fontSize: 9, fill: '#64748b' }} interval={2} />
               <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={30} />
               <Tooltip
-                contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', fontSize: '11px' }}
-                labelStyle={{ color: '#94a3b8' }}
+                contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', fontSize: '11px' }}
+                labelStyle={{ color: '#94a3b8', fontWeight: 600 }}
               />
-              <Bar dataKey="events" radius={[3, 3, 0, 0]}>
-                {hourlyData.map((entry, i) => (
-                  <Cell key={i} fill={entry.fill} fillOpacity={0.8} />
-                ))}
-              </Bar>
+              <Bar dataKey="calls" stackId="a" fill="#3b82f6" fillOpacity={0.85} radius={[0, 0, 0, 0]} name="Calls" />
+              <Bar dataKey="messages" stackId="a" fill="#10b981" fillOpacity={0.85} radius={[3, 3, 0, 0]} name="Messages" />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Weekly Activity Chart */}
+      {/* Weekly Communication Pattern */}
       <div>
         <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-          <Calendar size={12} /> Weekly Activity
+          <Calendar size={12} /> Weekly Communication
         </h4>
-        <div className="flex items-center gap-4 mb-2">
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-blue-500" />
-            <span className="text-[10px] text-slate-500">Weekday</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-purple-500" />
-            <span className="text-[10px] text-slate-500">Weekend</span>
-          </div>
-        </div>
         <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/30">
-          <ResponsiveContainer width="100%" height={140}>
+          <ResponsiveContainer width="100%" height={160}>
             <BarChart data={weeklyData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
               <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#64748b' }} />
               <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={30} />
               <Tooltip
-                contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', fontSize: '11px' }}
+                contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', fontSize: '11px' }}
               />
-              <Bar dataKey="events" radius={[3, 3, 0, 0]}>
-                {weeklyData.map((entry, i) => (
-                  <Cell key={i} fill={entry.fill} fillOpacity={0.8} />
-                ))}
-              </Bar>
+              <Bar dataKey="calls" stackId="a" fill="#3b82f6" fillOpacity={0.85} name="Calls" />
+              <Bar dataKey="messages" stackId="a" fill="#10b981" fillOpacity={0.85} radius={[3, 3, 0, 0]} name="Messages" />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Top Contacts */}
+      {data.top_contacts && data.top_contacts.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Users size={12} /> Top Contacts
+          </h4>
+          <div className="space-y-2">
+            {data.top_contacts.map((c, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/30">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center text-xs font-bold text-blue-400">
+                  #{i + 1}
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-mono text-slate-200">{c.msisdn}</div>
+                  <div className="text-[10px] text-slate-500">
+                    {c.calls} calls | {Math.round((c.duration_sec || 0) / 60)} min total
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Regular Routes */}
       {data.regular_routes && data.regular_routes.length > 0 && (

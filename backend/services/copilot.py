@@ -782,10 +782,13 @@ class CopilotService:
     # ------------------------------------------------------------------
 
     async def _fetch_pattern_of_life(self, db: AsyncSession, msisdn: str, days: int = 30) -> Optional[dict]:
-        """Sleep/work/weekend locations + hourly/weekly histograms."""
+        """Sleep/work/weekend locations from location data + communication patterns from calls/messages."""
         import math
         cutoff = datetime.utcnow() - timedelta(days=days)
-        stmt = (
+        dow_map = {0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5}  # pg dow -> Mon=0
+
+        # === LOCATIONS: sleep/work/weekend towers ===
+        loc_stmt = (
             select(
                 func.extract("hour", LocationEvent.timestamp).label("hr"),
                 func.extract("dow", LocationEvent.timestamp).label("dow"),
@@ -795,24 +798,16 @@ class CopilotService:
             .where(LocationEvent.msisdn == msisdn, LocationEvent.timestamp >= cutoff)
             .group_by("hr", "dow", LocationEvent.tower_id)
         )
-        res = await db.execute(stmt)
-        rows = res.all()
-        if not rows:
-            return None
+        loc_res = await db.execute(loc_stmt)
+        loc_rows = loc_res.all()
 
-        hourly = [0] * 24
-        weekly = [0] * 7
         night_towers: dict[int, int] = {}
         work_towers: dict[int, int] = {}
         weekend_towers: dict[int, int] = {}
 
-        dow_map = {0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5}  # pg dow -> Mon=0
-
-        for r in rows:
+        for r in loc_rows:
             hr = int(r.hr)
             day_idx = dow_map.get(int(r.dow), 0)
-            hourly[hr] += r.cnt
-            weekly[day_idx] += r.cnt
             if hr >= 23 or hr < 6:
                 night_towers[r.tower_id] = night_towers.get(r.tower_id, 0) + r.cnt
             if 9 <= hr < 18 and day_idx < 5:
@@ -836,25 +831,105 @@ class CopilotService:
                 "confidence": round(tower_counts[top_id] / max(total, 1), 2),
             }
 
-        total_events = sum(hourly)
+        # === COMMUNICATION: hourly/weekly from CALLS + MESSAGES ===
+        hourly_calls = [0] * 24
+        hourly_msgs = [0] * 24
+        weekly_calls = [0] * 7
+        weekly_msgs = [0] * 7
+
+        # Calls by hour/day
+        call_stmt = (
+            select(
+                func.extract("hour", CallRecord.start_time).label("hr"),
+                func.extract("dow", CallRecord.start_time).label("dow"),
+                func.count().label("cnt"),
+                func.sum(CallRecord.duration_seconds).label("total_dur"),
+            )
+            .where(
+                or_(CallRecord.caller_msisdn == msisdn, CallRecord.callee_msisdn == msisdn),
+                CallRecord.start_time >= cutoff,
+            )
+            .group_by("hr", "dow")
+        )
+        call_res = await db.execute(call_stmt)
+        total_call_duration = 0
+        for r in call_res.all():
+            hr = int(r.hr)
+            day_idx = dow_map.get(int(r.dow), 0)
+            hourly_calls[hr] += r.cnt
+            weekly_calls[day_idx] += r.cnt
+            total_call_duration += r.total_dur or 0
+
+        # Messages by hour/day
+        msg_stmt = (
+            select(
+                func.extract("hour", Message.timestamp).label("hr"),
+                func.extract("dow", Message.timestamp).label("dow"),
+                func.count().label("cnt"),
+            )
+            .where(
+                or_(Message.sender_msisdn == msisdn, Message.receiver_msisdn == msisdn),
+                Message.timestamp >= cutoff,
+            )
+            .group_by("hr", "dow")
+        )
+        msg_res = await db.execute(msg_stmt)
+        for r in msg_res.all():
+            hr = int(r.hr)
+            day_idx = dow_map.get(int(r.dow), 0)
+            hourly_msgs[hr] += r.cnt
+            weekly_msgs[day_idx] += r.cnt
+
+        # Combined hourly (for routine score)
+        hourly_total = [hourly_calls[i] + hourly_msgs[i] for i in range(24)]
+        weekly_total = [weekly_calls[i] + weekly_msgs[i] for i in range(7)]
+        total_comms = sum(hourly_total)
+
+        if total_comms == 0 and not loc_rows:
+            return None
+
+        # Routine score from communication pattern
         entropy = 0
-        if total_events > 0:
-            for h in hourly:
+        if total_comms > 0:
+            for h in hourly_total:
                 if h > 0:
-                    p = h / total_events
+                    p = h / total_comms
                     entropy -= p * math.log(p)
             max_entropy = math.log(24)
             routine_score = round(1 - (entropy / max_entropy), 2) if max_entropy > 0 else 0
         else:
             routine_score = 0
 
+        # Peak hours
+        peak_hour = hourly_total.index(max(hourly_total)) if total_comms > 0 else None
+        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        peak_day = day_names[weekly_total.index(max(weekly_total))] if total_comms > 0 else None
+
+        # Top contacts (quick)
+        contacts = await GraphAnalyticsService.get_contact_network(db, msisdn)
+        top_3 = []
+        for c in contacts[:3]:
+            total = c.get("outgoing_calls", 0) + c.get("incoming_calls", 0)
+            top_3.append({"msisdn": c["msisdn"], "calls": total, "duration_sec": c.get("total_call_duration", 0)})
+
         return {
             "analysis_days": days,
             "sleep_location": await _tower_info(night_towers),
             "work_location": await _tower_info(work_towers),
             "weekend_location": await _tower_info(weekend_towers),
-            "hourly_activity": hourly,
-            "weekly_activity": weekly,
+            "hourly_calls": hourly_calls,
+            "hourly_messages": hourly_msgs,
+            "hourly_total": hourly_total,
+            "weekly_calls": weekly_calls,
+            "weekly_messages": weekly_msgs,
+            "weekly_total": weekly_total,
+            "total_calls": sum(hourly_calls),
+            "total_messages": sum(hourly_msgs),
+            "total_call_duration_sec": total_call_duration,
+            "avg_call_duration_sec": round(total_call_duration / max(sum(hourly_calls), 1)),
+            "peak_hour": f"{peak_hour}:00" if peak_hour is not None else None,
+            "peak_day": peak_day,
+            "top_contacts": top_3,
             "routine_score": routine_score,
         }
 
