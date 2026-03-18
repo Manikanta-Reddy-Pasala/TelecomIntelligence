@@ -13,6 +13,7 @@ import CaseDetail from './pages/CaseDetail';
 import MapView from './pages/MapView';
 import Analytics from './pages/Analytics';
 import AuditLog from './pages/AuditLog';
+import AdvancedAnalytics from './pages/AdvancedAnalytics';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="cases/:id" element={<CaseDetail />} />
               <Route path="map" element={<MapView />} />
               <Route path="analytics" element={<Analytics />} />
+              <Route path="investigation" element={<AdvancedAnalytics />} />
               <Route
                 path="audit-log"
                 element={

@@ -15,6 +15,7 @@ import {
   Radio,
   Shield,
   Zap,
+  Fingerprint,
 } from 'lucide-react';
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { to: '/cases', icon: FolderOpen, label: 'Cases' },
   { to: '/map', icon: Map, label: 'Map' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/investigation', icon: Fingerprint, label: 'Investigation' },
 ];
 
 const adminItems = [
