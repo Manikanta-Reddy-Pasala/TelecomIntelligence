@@ -480,6 +480,8 @@ function ToolsTab({ evidence, entity, onQuery }) {
 // Timeline Tab
 // ---------------------------------------------------------------------------
 function TimelineTab({ events }) {
+  const [typeFilter, setTypeFilter] = useState('all');
+
   if (!events || events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-slate-600">
@@ -492,30 +494,66 @@ function TimelineTab({ events }) {
   const colorMap = { call: '#3b82f6', sms: '#22c55e', location: '#a855f7', data: '#f59e0b' };
   const typeLevel = { call: 3, sms: 2, location: 1, data: 0 };
 
-  const chartData = events.map((evt, i) => {
+  // Filter events
+  const filtered = typeFilter === 'all' ? events : events.filter(e => e.type === typeFilter);
+
+  // Count by type
+  const typeCounts = {};
+  events.forEach(e => { typeCounts[e.type] = (typeCounts[e.type] || 0) + 1; });
+
+  // Chart data
+  const chartData = filtered.map((evt, i) => {
     const ts = new Date(evt.timestamp || evt.time || Date.now()).getTime();
-    return {
-      x: isNaN(ts) ? Date.now() : ts,
-      y: typeLevel[evt.type] ?? 0,
-      ...evt,
-      index: i,
-    };
+    return { x: isNaN(ts) ? Date.now() : ts, y: typeLevel[evt.type] ?? 0, ...evt, index: i };
   });
+
+  // Determine if events span multiple days
+  const timestamps = filtered.map(e => new Date(e.timestamp || 0).getTime()).filter(t => !isNaN(t) && t > 0);
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+  const spanDays = (maxTs - minTs) / (1000 * 60 * 60 * 24);
+  const xTickFormat = spanDays > 2 ? 'MMM d' : spanDays > 0.5 ? 'MMM d HH:mm' : 'HH:mm';
+
+  // Group events by date for the list
+  const grouped = {};
+  filtered.forEach(evt => {
+    const dateKey = evt.timestamp ? safeFormat(evt.timestamp, 'yyyy-MM-dd', 'Unknown') : 'Unknown';
+    if (!grouped[dateKey]) grouped[dateKey] = [];
+    grouped[dateKey].push(evt);
+  });
+  const sortedDates = Object.keys(grouped).sort().reverse();
+
+  // Date range display
+  const dateRange = timestamps.length > 0
+    ? safeFormat(minTs, 'MMM d, yyyy') + ' — ' + safeFormat(maxTs, 'MMM d, yyyy')
+    : '';
 
   return (
     <div className="h-[calc(100vh-260px)] flex flex-col">
-      {/* Legend */}
-      <div className="flex items-center gap-5 mb-4 px-1">
-        {Object.entries(colorMap).map(([type, color]) => (
-          <div key={type} className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full ring-2 ring-offset-1 ring-offset-slate-900" style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}60` }} />
-            <span className="text-xs text-slate-400 capitalize font-medium">{type}</span>
-          </div>
-        ))}
+      {/* Header: filters + stats */}
+      <div className="flex items-center justify-between mb-3 px-1">
+        <div className="flex items-center gap-2">
+          {['all', ...Object.keys(typeCounts)].map(t => (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                typeFilter === t
+                  ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
+                  : 'text-slate-500 hover:text-slate-300 border border-transparent'
+              }`}
+            >
+              {t !== 'all' && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colorMap[t] || '#64748b' }} />}
+              <span className="capitalize">{t}</span>
+              <span className="text-slate-600">{t === 'all' ? events.length : typeCounts[t] || 0}</span>
+            </button>
+          ))}
+        </div>
+        {dateRange && <span className="text-[10px] text-slate-600 font-mono">{dateRange}</span>}
       </div>
 
       {/* Chart */}
-      <div className="flex-shrink-0" style={{ height: '45%' }}>
+      <div className="flex-shrink-0" style={{ height: '40%' }}>
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 10, right: 16, bottom: 30, left: 10 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" strokeOpacity={0.7} />
@@ -523,76 +561,85 @@ function TimelineTab({ events }) {
               dataKey="x"
               type="number"
               domain={['dataMin', 'dataMax']}
-              tickFormatter={(val) => safeFormat(val, 'HH:mm', '')}
+              tickFormatter={(val) => safeFormat(val, xTickFormat, '')}
               stroke="#334155"
-              tick={{ fill: '#64748b', fontSize: 11 }}
+              tick={{ fill: '#64748b', fontSize: 10 }}
               name="Time"
             />
             <YAxis
-              dataKey="y"
-              type="number"
-              domain={[-0.5, 3.5]}
-              ticks={[0, 1, 2, 3]}
+              dataKey="y" type="number" domain={[-0.5, 3.5]} ticks={[0, 1, 2, 3]}
               tickFormatter={(val) => ['data', 'location', 'sms', 'call'][val] || ''}
-              stroke="#334155"
-              tick={{ fill: '#64748b', fontSize: 11 }}
-              width={60}
+              stroke="#334155" tick={{ fill: '#64748b', fontSize: 10 }} width={50}
             />
             <Tooltip
               content={({ payload }) => {
                 if (!payload || payload.length === 0) return null;
                 const d = payload[0].payload;
                 return (
-                  <div className="glass-card rounded-xl p-3 text-xs shadow-2xl border border-slate-600/30">
+                  <div className="glass-card rounded-xl p-3 text-xs shadow-2xl border border-slate-600/30 max-w-xs">
                     <div className="font-semibold text-slate-100 mb-1 capitalize flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colorMap[d.type] || '#64748b' }} />
-                      {d.type} Event
+                      {d.type}
                     </div>
-                    <div className="text-slate-400">
-                      {d.timestamp ? safeFormat(d.timestamp, 'MMM d, HH:mm:ss', 'N/A') : 'N/A'}
-                    </div>
-                    {d.from && <div className="text-slate-500 mt-1">From: {d.from}</div>}
-                    {d.to && <div className="text-slate-500">To: {d.to}</div>}
-                    {d.tower_id && <div className="text-slate-500">Tower: {d.tower_id}</div>}
-                    {d.duration && <div className="text-slate-500">Duration: {d.duration}s</div>}
+                    <div className="text-slate-300 font-mono">{d.timestamp ? safeFormat(d.timestamp, 'MMM d, yyyy  HH:mm:ss') : '--'}</div>
+                    {d.from && <div className="text-slate-400 mt-1">From: <span className="font-mono">{d.from}</span></div>}
+                    {d.to && <div className="text-slate-400">To: <span className="font-mono">{d.to}</span></div>}
+                    {d.duration > 0 && <div className="text-slate-400">Duration: {Math.floor(d.duration / 60)}m {d.duration % 60}s</div>}
+                    {d.transcript && <div className="text-slate-500 mt-1 text-[10px] italic truncate">{d.transcript.slice(0, 80)}...</div>}
+                    {d.preview && <div className="text-slate-500 mt-1 text-[10px] italic">{d.preview}</div>}
                   </div>
                 );
               }}
             />
-            <Scatter
-              data={chartData}
-              fill="#3b82f6"
-              shape={(props) => {
-                const { cx, cy, payload } = props;
-                const color = colorMap[payload.type] || '#64748b';
-                return (
-                  <g>
-                    <circle cx={cx} cy={cy} r={8} fill={color} fillOpacity={0.1} />
-                    <circle cx={cx} cy={cy} r={5} fill={color} fillOpacity={0.85} stroke={color} strokeWidth={1.5} strokeOpacity={0.4} />
-                  </g>
-                );
-              }}
-            />
+            <Scatter data={chartData} fill="#3b82f6" shape={(props) => {
+              const { cx, cy, payload } = props;
+              const color = colorMap[payload.type] || '#64748b';
+              return (<g><circle cx={cx} cy={cy} r={7} fill={color} fillOpacity={0.1} /><circle cx={cx} cy={cy} r={4} fill={color} fillOpacity={0.85} /></g>);
+            }} />
           </ScatterChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Event list */}
-      <div className="flex-1 overflow-auto mt-3 space-y-0.5 pr-1">
-        {events.map((evt, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-3 text-xs px-3 py-2 rounded-lg bg-slate-800/20 hover:bg-slate-800/40 transition-colors border border-transparent hover:border-slate-700/30"
-          >
-            <div
-              className="w-2 h-2 rounded-full shrink-0 ring-2 ring-offset-1 ring-offset-slate-900"
-              style={{ backgroundColor: colorMap[evt.type] || '#64748b' }}
-            />
-            <span className="text-slate-500 font-mono w-16 shrink-0">
-              {evt.timestamp ? safeFormat(evt.timestamp, 'HH:mm:ss', '--:--:--') : '--:--:--'}
-            </span>
-            <span className="text-slate-400 capitalize w-14 shrink-0 font-medium">{evt.type}</span>
-            <span className="text-slate-300 truncate">{evt.description || `${evt.from || ''} -> ${evt.to || ''}`}</span>
+      {/* Event list grouped by date */}
+      <div className="flex-1 overflow-auto mt-2 pr-1">
+        {sortedDates.map(dateKey => (
+          <div key={dateKey} className="mb-3">
+            {/* Date header */}
+            <div className="sticky top-0 z-10 bg-slate-900/95 backdrop-blur-sm px-2 py-1.5 mb-1 flex items-center gap-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                {dateKey !== 'Unknown' ? safeFormat(dateKey, 'EEEE, MMM d, yyyy') : 'Unknown Date'}
+              </div>
+              <span className="text-[9px] text-slate-600">{grouped[dateKey].length} events</span>
+              <div className="flex-1 h-px bg-slate-800" />
+            </div>
+            {/* Events for this date */}
+            <div className="space-y-0.5">
+              {grouped[dateKey].map((evt, i) => (
+                <div key={i} className="flex items-start gap-2.5 text-xs px-2.5 py-2 rounded-lg bg-slate-800/15 hover:bg-slate-800/40 transition-colors group">
+                  <div className="w-2 h-2 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: colorMap[evt.type] || '#64748b' }} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 font-mono text-[11px] shrink-0">
+                        {evt.timestamp ? safeFormat(evt.timestamp, 'HH:mm:ss') : '--:--:--'}
+                      </span>
+                      <span className="text-slate-500 capitalize text-[10px] font-semibold shrink-0 w-8">{evt.type}</span>
+                      <span className="text-slate-200 truncate text-[11px]">
+                        {evt.description || (evt.from && evt.to ? evt.from + ' → ' + evt.to : '--')}
+                      </span>
+                    </div>
+                    {/* Extra details on hover */}
+                    {(evt.transcript || evt.preview) && (
+                      <div className="text-[10px] text-slate-500 mt-0.5 truncate italic opacity-60 group-hover:opacity-100 transition-opacity">
+                        {evt.transcript || evt.preview}
+                      </div>
+                    )}
+                  </div>
+                  {evt.duration > 0 && (
+                    <span className="text-[9px] text-slate-600 font-mono shrink-0 mt-1">{Math.floor(evt.duration / 60)}:{String(evt.duration % 60).padStart(2, '0')}</span>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
