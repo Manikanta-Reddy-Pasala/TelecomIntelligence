@@ -1,6 +1,10 @@
 # TIAC - Telecom Intelligence Analyst Copilot
 
-An AI-powered investigation platform for telecom CDR (Call Detail Record) analysis. TIAC enables intelligence analysts to investigate phone numbers, detect anomalies, trace movement patterns, and uncover communication networks through a conversational AI copilot interface.
+> **Note:** This is an AI-generated copy of **Intelligence Co-Pilot Powered by GenAI | Cognyte**.
+> Built for learning and demonstration purposes.
+
+An AI-powered investigation platform for telecom. TIAC enables intelligence analysts to investigate phone numbers, detect anomalies, trace movement patterns, and uncover communication networks through a conversational AI copilot interface.
+
 
 ---
 
