@@ -37,12 +37,15 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   ScatterChart,
   Scatter,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
+  Cell,
 } from 'recharts';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -977,6 +980,239 @@ function EntityCardTab({ entity }) {
 // ---------------------------------------------------------------------------
 // Main Copilot Component
 // ---------------------------------------------------------------------------
+function PatternOfLifeTab({ data, entity }) {
+  if (!data) {
+    return <div className="text-sm text-slate-600 text-center py-8">No pattern of life data available</div>;
+  }
+
+  const hourLabels = Array.from({ length: 24 }, (_, i) => `${i}:00`);
+  const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  const hourlyData = (data.hourly_activity || []).map((val, i) => ({
+    hour: hourLabels[i],
+    events: val,
+    fill: i >= 23 || i < 6 ? '#6366f1' : i >= 9 && i < 18 ? '#22c55e' : '#f59e0b',
+  }));
+
+  const weeklyData = (data.weekly_activity || []).map((val, i) => ({
+    day: dayLabels[i],
+    events: val,
+    fill: i >= 5 ? '#a855f7' : '#3b82f6',
+  }));
+
+  const routineScore = data.routine_score || 0;
+  const routineColor = routineScore > 0.6 ? '#22c55e' : routineScore > 0.3 ? '#f59e0b' : '#ef4444';
+  const routineLabel = routineScore > 0.6 ? 'Highly Predictable' : routineScore > 0.3 ? 'Moderately Predictable' : 'Unpredictable';
+
+  const LocationCard = ({ label, icon, color, location }) => {
+    if (!location || !location.tower_id) return null;
+    return (
+      <div className={`p-4 rounded-xl bg-slate-800/40 border border-${color}-500/20`}>
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`w-8 h-8 rounded-lg bg-${color}-500/15 flex items-center justify-center`}>
+            {icon}
+          </div>
+          <div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">{label}</div>
+            <div className="text-sm font-medium text-slate-200">{location.tower_id}</div>
+          </div>
+        </div>
+        <div className="space-y-1 text-xs text-slate-400">
+          {location.city && <div>Area: {location.city}</div>}
+          {location.confidence != null && (
+            <div className="flex items-center gap-2">
+              <span>Confidence:</span>
+              <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full bg-${color}-500 rounded-full`}
+                  style={{ width: `${Math.max(location.confidence * 100, 5)}%` }}
+                />
+              </div>
+              <span className="text-slate-500">{(location.confidence * 100).toFixed(0)}%</span>
+            </div>
+          )}
+          {location.latitude && (
+            <div className="text-[10px] text-slate-600 font-mono">
+              {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="overflow-auto max-h-[calc(100vh-280px)] space-y-5 p-1 animate-fade-in">
+      {/* Header with entity name and routine score */}
+      <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-slate-800/60 to-slate-800/30 border border-slate-700/40">
+        <div>
+          <h3 className="text-lg font-bold text-slate-100">
+            {entity?.name || 'Unknown'} — Pattern of Life
+          </h3>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Analysis period: {data.analysis_days || 30} days
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Routine Score</div>
+          <div className="flex items-center gap-2">
+            <div className="w-16 h-16 relative">
+              <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                <path
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke="#1e293b" strokeWidth="3"
+                />
+                <path
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke={routineColor} strokeWidth="3"
+                  strokeDasharray={`${routineScore * 100}, 100`}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-sm font-bold" style={{ color: routineColor }}>
+                  {(routineScore * 100).toFixed(0)}%
+                </span>
+              </div>
+            </div>
+            <span className="text-xs text-slate-400">{routineLabel}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Key Locations */}
+      <div>
+        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <MapPin size={12} /> Key Locations
+        </h4>
+        <div className="grid grid-cols-3 gap-3">
+          <LocationCard
+            label="Sleep Location"
+            icon={<Clock size={14} className="text-indigo-400" />}
+            color="indigo"
+            location={data.sleep_location}
+          />
+          <LocationCard
+            label="Work Location"
+            icon={<Activity size={14} className="text-green-400" />}
+            color="green"
+            location={data.work_location}
+          />
+          <LocationCard
+            label="Weekend Location"
+            icon={<Calendar size={14} className="text-purple-400" />}
+            color="purple"
+            location={data.weekend_location}
+          />
+        </div>
+      </div>
+
+      {/* Hourly Activity Chart */}
+      <div>
+        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <Clock size={12} /> Hourly Activity (24h)
+        </h4>
+        <div className="flex items-center gap-4 mb-2">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-indigo-500" />
+            <span className="text-[10px] text-slate-500">Night (11PM-6AM)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="text-[10px] text-slate-500">Work hours (9AM-6PM)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            <span className="text-[10px] text-slate-500">Other</span>
+          </div>
+        </div>
+        <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/30">
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={hourlyData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="hour" tick={{ fontSize: 9, fill: '#64748b' }} interval={2} />
+              <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={30} />
+              <Tooltip
+                contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', fontSize: '11px' }}
+                labelStyle={{ color: '#94a3b8' }}
+              />
+              <Bar dataKey="events" radius={[3, 3, 0, 0]}>
+                {hourlyData.map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} fillOpacity={0.8} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Weekly Activity Chart */}
+      <div>
+        <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <Calendar size={12} /> Weekly Activity
+        </h4>
+        <div className="flex items-center gap-4 mb-2">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="text-[10px] text-slate-500">Weekday</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-purple-500" />
+            <span className="text-[10px] text-slate-500">Weekend</span>
+          </div>
+        </div>
+        <div className="bg-slate-800/30 rounded-xl p-3 border border-slate-700/30">
+          <ResponsiveContainer width="100%" height={140}>
+            <BarChart data={weeklyData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+              <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#64748b' }} />
+              <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={30} />
+              <Tooltip
+                contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', fontSize: '11px' }}
+              />
+              <Bar dataKey="events" radius={[3, 3, 0, 0]}>
+                {weeklyData.map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} fillOpacity={0.8} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Regular Routes */}
+      {data.regular_routes && data.regular_routes.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Navigation size={12} /> Regular Routes
+          </h4>
+          <div className="space-y-2">
+            {data.regular_routes.map((route, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/30">
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-xs font-mono text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">
+                    {route.from_tower || '?'}
+                  </span>
+                  <ArrowRight size={12} className="text-slate-600" />
+                  <span className="text-xs font-mono text-green-400 bg-green-500/10 px-2 py-0.5 rounded">
+                    {route.to_tower || '?'}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-slate-300 font-medium">{route.frequency}x</div>
+                  {route.typical_time && (
+                    <div className="text-[10px] text-slate-500">~{route.typical_time}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Copilot() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -1021,6 +1257,7 @@ export default function Copilot() {
         locations: response.locations || [],
         graph: response.graph || null,
         entity: response.entity || null,
+        pattern_of_life: response.pattern_of_life || null,
         query_plan: response.query_plan || [],
         suggestions: response.suggestions || [],
         timestamp: new Date().toISOString(),
@@ -1029,7 +1266,8 @@ export default function Copilot() {
       setMessages((prev) => [...prev, aiMsg]);
       setActiveEvidence(aiMsg);
 
-      if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('graph');
+      if (aiMsg.pattern_of_life) setActiveTab('pol');
+      else if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('graph');
       else if (aiMsg.locations && aiMsg.locations.length > 0) setActiveTab('map');
       else if (aiMsg.timeline && aiMsg.timeline.length > 0) setActiveTab('timeline');
       else if (aiMsg.evidence && aiMsg.evidence.length > 0) setActiveTab('evidence');
@@ -1080,6 +1318,7 @@ export default function Copilot() {
     { key: 'map', label: 'Map', icon: MapPin },
     { key: 'graph', label: 'Graph', icon: GitBranch },
     { key: 'entity', label: 'Entity', icon: UserCircle },
+    { key: 'pol', label: 'Pattern of Life', icon: Activity },
   ];
 
   const suggestions = [
@@ -1101,6 +1340,7 @@ export default function Copilot() {
       map: activeEvidence.locations?.length || 0,
       graph: activeEvidence.graph?.nodes?.length || 0,
       entity: activeEvidence.entity ? 1 : 0,
+      pol: activeEvidence.pattern_of_life ? 1 : 0,
     };
   }, [activeEvidence]);
 
@@ -1347,6 +1587,7 @@ export default function Copilot() {
               {activeTab === 'map' && <MapTab locations={activeEvidence.locations} />}
               {activeTab === 'graph' && <GraphTab graphData={activeEvidence.graph} />}
               {activeTab === 'entity' && <EntityCardTab entity={activeEvidence.entity} />}
+              {activeTab === 'pol' && <PatternOfLifeTab data={activeEvidence.pattern_of_life} entity={activeEvidence.entity} />}
             </>
           )}
         </div>

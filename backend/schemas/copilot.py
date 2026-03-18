@@ -40,6 +40,7 @@ class CopilotResponse(BaseModel):
     locations: list[dict] = []
     graph: Optional[dict] = None
     entity: Optional[dict] = None
+    pattern_of_life: Optional[dict] = None
 
 
 class SuggestionResponse(BaseModel):

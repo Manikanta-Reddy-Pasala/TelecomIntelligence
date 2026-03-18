@@ -144,6 +144,7 @@ class CopilotService:
             locations=result["locations"],
             graph=result["graph"],
             entity=result["entity"],
+            pattern_of_life=result.get("pattern_of_life"),
         )
 
     async def get_suggestions(self, db: AsyncSession, case_id: int) -> list[str]:
@@ -271,6 +272,7 @@ class CopilotService:
             "locations": [],
             "graph": None,
             "entity": None,
+            "pattern_of_life": None,
             "has_data": False,
             "summary_parts": [],
         }
@@ -504,6 +506,7 @@ class CopilotService:
                 pol = await self._fetch_pattern_of_life(db, msisdn)
                 if pol:
                     result["has_data"] = True
+                    result["pattern_of_life"] = pol
                     result["evidence"].append(Evidence(
                         source="Pattern of Life",
                         data=pol,
@@ -515,6 +518,20 @@ class CopilotService:
                         f"Pattern of Life: sleeps near {sleep_tower}, works near {work_tower}, "
                         f"routine score: {pol.get('routine_score', 0):.0%}"
                     )
+                    # Add key locations to map
+                    for loc_type, loc_data in [("Sleep", pol.get("sleep_location")),
+                                                ("Work", pol.get("work_location")),
+                                                ("Weekend", pol.get("weekend_location"))]:
+                        if loc_data and loc_data.get("latitude"):
+                            result["locations"].append({
+                                "latitude": loc_data["latitude"],
+                                "longitude": loc_data["longitude"],
+                                "tower_id": loc_data.get("tower_id", ""),
+                                "city": loc_data.get("city", ""),
+                                "timestamp": None,
+                                "event_type": loc_type,
+                                "signal_strength": None,
+                            })
 
             # --- IDENTITY CHANGES (SIM/IMEI) ---
             if intent in ("identity_change", "comprehensive"):
