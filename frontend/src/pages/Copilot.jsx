@@ -883,7 +883,8 @@ function MapTab({ locations }) {
 // ---------------------------------------------------------------------------
 // Graph Tab
 // ---------------------------------------------------------------------------
-function ContactsTab({ graphData }) {
+function ContactsTab({ graphData, timeline }) {
+  const [expandedMsisdn, setExpandedMsisdn] = useState(null);
   const [sortBy, setSortBy] = useState('weight');
   const [sortDir, setSortDir] = useState('desc');
 
@@ -903,15 +904,25 @@ function ContactsTab({ graphData }) {
       msisdn: n.msisdn || n.id,
       calls: n.call_count || 0,
       total: n.weight || 0,
-      label: n.label || (n.msisdn || '').slice(-6),
     }))
-    .sort((a, b) => sortDir === 'desc' ? b[sortBy === 'calls' ? 'calls' : 'total'] - a[sortBy === 'calls' ? 'calls' : 'total'] : a[sortBy === 'calls' ? 'calls' : 'total'] - b[sortBy === 'calls' ? 'calls' : 'total']);
+    .sort((a, b) => {
+      const key = sortBy === 'calls' ? 'calls' : 'total';
+      return sortDir === 'desc' ? b[key] - a[key] : a[key] - b[key];
+    });
 
   const maxTotal = Math.max(...contacts.map(c => c.total), 1);
-
-  const interEdges = (graphData.edges || []).filter(e => e.is_inter);
   const totalCalls = contacts.reduce((s, c) => s + c.calls, 0);
-  const totalInteractions = contacts.reduce((s, c) => s + c.total, 0);
+
+  // Build conversation lookup from timeline
+  const convos = {};
+  if (timeline) {
+    timeline.forEach(evt => {
+      const other = evt.from === target?.msisdn ? evt.to : evt.from;
+      if (!other) return;
+      if (!convos[other]) convos[other] = [];
+      convos[other].push(evt);
+    });
+  }
 
   const handleSort = (col) => {
     if (sortBy === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
@@ -920,87 +931,91 @@ function ContactsTab({ graphData }) {
 
   return (
     <div className="h-[calc(100vh-260px)] flex flex-col overflow-hidden">
-      {/* Summary bar */}
-      <div className="flex items-center gap-6 px-4 py-3 bg-slate-800/30 rounded-t-xl border-b border-slate-700/30 shrink-0">
-        <div>
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider">Target</div>
-          <div className="text-sm font-mono text-blue-400 font-semibold">{target?.msisdn || '--'}</div>
-        </div>
-        <div className="h-8 w-px bg-slate-700/50" />
-        <div className="text-center">
-          <div className="text-lg font-bold text-slate-100">{contacts.length}</div>
-          <div className="text-[10px] text-slate-500">Contacts</div>
-        </div>
-        <div className="text-center">
-          <div className="text-lg font-bold text-slate-100">{totalCalls}</div>
-          <div className="text-[10px] text-slate-500">Calls</div>
-        </div>
-        <div className="text-center">
-          <div className="text-lg font-bold text-slate-100">{totalInteractions}</div>
-          <div className="text-[10px] text-slate-500">Interactions</div>
-        </div>
-        {interEdges.length > 0 && (
-          <>
-            <div className="h-8 w-px bg-slate-700/50" />
-            <div className="text-center">
-              <div className="text-lg font-bold text-amber-400">{interEdges.length}</div>
-              <div className="text-[10px] text-slate-500">Cross-links</div>
-            </div>
-          </>
-        )}
+      {/* Summary */}
+      <div className="flex items-center gap-5 px-4 py-2.5 bg-slate-800/30 border-b border-slate-700/30 shrink-0">
+        <div className="text-[10px] text-slate-500">Target: <span className="text-blue-400 font-mono font-semibold">{target?.msisdn || '--'}</span></div>
+        <div className="text-[10px] text-slate-500">{contacts.length} contacts</div>
+        <div className="text-[10px] text-slate-500">{totalCalls} calls</div>
       </div>
 
-      {/* Contact table */}
+      {/* Contact list */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10">
-            <tr>
-              <th className="text-left px-4 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold w-8">#</th>
-              <th className="text-left px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">MSISDN</th>
-              <th
-                className="text-right px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold cursor-pointer hover:text-slate-300 select-none"
-                onClick={() => handleSort('calls')}
+        {contacts.map((c, i) => {
+          const pct = Math.round((c.total / maxTotal) * 100);
+          const barColor = pct > 70 ? 'bg-red-500' : pct > 40 ? 'bg-amber-500' : pct > 20 ? 'bg-green-500' : 'bg-slate-600';
+          const isExpanded = expandedMsisdn === c.msisdn;
+          const contactEvents = convos[c.msisdn] || [];
+          const hasContent = contactEvents.some(e => e.transcript || e.preview || e.description);
+
+          return (
+            <div key={c.msisdn} className="border-b border-slate-800/20">
+              {/* Contact row */}
+              <button
+                onClick={() => setExpandedMsisdn(isExpanded ? null : c.msisdn)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-slate-800/30 transition-colors text-left"
               >
-                Calls {sortBy === 'calls' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-              </th>
-              <th
-                className="text-right px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold cursor-pointer hover:text-slate-300 select-none"
-                onClick={() => handleSort('weight')}
-              >
-                Total {sortBy === 'weight' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-              </th>
-              <th className="text-left px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold w-48">Strength</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/20">
-            {contacts.map((c, i) => {
-              const pct = Math.round((c.total / maxTotal) * 100);
-              const barColor = pct > 70 ? 'bg-red-500' : pct > 40 ? 'bg-amber-500' : pct > 20 ? 'bg-green-500' : 'bg-slate-500';
-              return (
-                <tr key={c.msisdn} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="px-4 py-2.5 text-slate-600 font-mono">{i + 1}</td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-slate-200 font-mono font-medium">{c.msisdn}</span>
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    <span className="text-blue-400 font-semibold">{c.calls}</span>
-                  </td>
-                  <td className="px-3 py-2.5 text-right">
-                    <span className="text-slate-300 font-semibold">{c.total}</span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-[10px] text-slate-500 w-8 text-right font-mono">{pct}%</span>
+                <span className="text-[10px] text-slate-600 font-mono w-5 shrink-0">{i + 1}</span>
+                <span className="text-xs text-slate-200 font-mono font-medium flex-1">{c.msisdn}</span>
+                <span className="text-[10px] text-blue-400 font-semibold w-12 text-right">{c.calls} calls</span>
+                <div className="w-24 flex items-center gap-1.5">
+                  <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div className={`h-full ${barColor} rounded-full`} style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-[9px] text-slate-600 w-6 text-right">{pct}%</span>
+                </div>
+                <ChevronDown size={12} className={`text-slate-600 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Expanded: conversation/messages */}
+              {isExpanded && (
+                <div className="bg-slate-900/40 border-t border-slate-800/30 px-4 py-3">
+                  {contactEvents.length === 0 ? (
+                    <p className="text-[11px] text-slate-600 italic">No conversation data available for this contact</p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-60 overflow-auto">
+                      {contactEvents.slice(0, 30).map((evt, j) => (
+                        <div key={j} className="flex items-start gap-2 text-[11px]">
+                          {/* Direction indicator */}
+                          <div className={`w-1 h-full min-h-[20px] rounded-full shrink-0 mt-0.5 ${
+                            evt.from === target?.msisdn ? 'bg-blue-500' : 'bg-green-500'
+                          }`} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-500 font-mono text-[10px] shrink-0">
+                                {evt.timestamp ? safeFormat(evt.timestamp, 'MMM d HH:mm') : '--'}
+                              </span>
+                              <span className={`text-[9px] font-semibold uppercase ${evt.type === 'call' ? 'text-blue-400' : 'text-green-400'}`}>
+                                {evt.type}
+                              </span>
+                              {evt.duration > 0 && (
+                                <span className="text-[9px] text-slate-600">{Math.floor(evt.duration / 60)}:{String(evt.duration % 60).padStart(2, '0')}</span>
+                              )}
+                              <span className="text-[9px] text-slate-600">
+                                {evt.from === target?.msisdn ? '→ outgoing' : '← incoming'}
+                              </span>
+                            </div>
+                            {/* Message/transcript content */}
+                            {(evt.transcript || evt.preview) && (
+                              <div className="mt-0.5 text-slate-300 text-[11px] leading-relaxed bg-slate-800/40 rounded-lg px-2.5 py-1.5 border-l-2 border-slate-600/50">
+                                {evt.transcript || evt.preview}
+                              </div>
+                            )}
+                            {!evt.transcript && !evt.preview && evt.description && (
+                              <div className="mt-0.5 text-slate-500 text-[10px]">{evt.description}</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {contactEvents.length > 30 && (
+                        <p className="text-[10px] text-slate-600 text-center pt-1">Showing 30 of {contactEvents.length} events</p>
+                      )}
                     </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1791,7 +1806,7 @@ export default function Copilot() {
               {activeTab === 'tools' && <ToolsTab evidence={activeEvidence.evidence} entity={activeEvidence.entity} onQuery={(q) => handleSend(q)} />}
               {activeTab === 'timeline' && <TimelineTab events={activeEvidence.timeline} />}
               {activeTab === 'map' && <MapTab locations={activeEvidence.locations} />}
-              {activeTab === 'contacts' && <ContactsTab graphData={activeEvidence.graph} />}
+              {activeTab === 'contacts' && <ContactsTab graphData={activeEvidence.graph} timeline={activeEvidence.timeline} />}
               {activeTab === 'entity' && <EntityCardTab entity={activeEvidence.entity} />}
               {activeTab === 'pol' && <PatternOfLifeTab data={activeEvidence.pattern_of_life} entity={activeEvidence.entity} />}
             </>
