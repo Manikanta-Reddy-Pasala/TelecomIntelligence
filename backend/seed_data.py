@@ -115,6 +115,36 @@ MSG_PREVIEWS = [
     None, None, None, None, None,  # Some messages without preview
 ]
 
+CALL_TRANSCRIPTS = [
+    "Discussed delivery schedule for next week. Confirmed warehouse location at Andheri.",
+    "Brief check-in call. Subject confirmed arrival at location. Background noise suggests outdoor setting.",
+    "Negotiation about pricing. Mentioned bulk quantity of 500 units. Payment terms discussed.",
+    "Coordinating meeting point. Referenced landmark near Bandra station. Time set for 9 PM.",
+    "Argument about delayed payment. Caller threatened consequences. Callee promised resolution by Friday.",
+    "Discussing travel plans. Mentioned flight to Delhi on Thursday. Hotel booking confirmed.",
+    "Financial discussion. Bank transfer of 2 lakh mentioned. Account number partially audible.",
+    "Planning event logistics. Venue at Juhu confirmed. 50 people expected.",
+    "Complaint about product quality. Replacement shipment demanded. Ref number QC-4521.",
+    "Code words used: 'the package is ready', 'blue car at gate 3'. Short 45-second call.",
+    "Routine family call. Discussed dinner plans and school pickup schedule.",
+    "Business order placement. 200 units of item SKU-7834. Delivery to Goregaon warehouse.",
+    "Subject mentioned changing phone number soon. Advised contact to use Signal app.",
+    "Urgent tone. Discussed police presence at usual meeting spot. Suggested alternate location.",
+    "Casual conversation. Cricket match discussion. Plans to watch at friend's place.",
+    "Real estate inquiry. Property in Powai discussed. Price quoted at 1.5 crore.",
+    "Medical appointment scheduling. Doctor visit at Hinduja Hospital tomorrow 10 AM.",
+    "Discussed new SIM card activation. Mentioned Airtel store in Malad.",
+    "Money collection call. Amount of 75000 confirmed. Drop location: Kurla station east exit.",
+    "Logistics coordination. Truck arriving at 4 AM. Loading dock B. Driver contact shared.",
+    "Encrypted reference: 'item 7 is in cold storage'. Followed by location coordinates.",
+    "Job interview scheduled. TCS Powai campus. Round 2 technical. Wednesday 2 PM.",
+    "Wedding planning discussion. Guest list of 300. Caterer confirmed. Budget 15 lakh.",
+    "Vehicle purchase discussion. Second-hand Innova. Price 8.5 lakh. Registration pending.",
+    "Insurance claim follow-up. Policy number LIC-982341. Claim amount 5 lakh.",
+    None, None, None, None, None, None, None, None, None, None,  # ~40% calls without transcript
+    None, None, None, None, None, None, None, None, None, None,
+]
+
 
 def _rand_msisdn() -> str:
     return f"+919{_rng.randint(100000000, 999999999)}"
@@ -315,6 +345,7 @@ async def seed():
                 duration_seconds=dur,
                 call_type=_rng.choice(["voice", "voice", "voice", "video"]),
                 status="answered" if dur > 0 else _rng.choice(["missed", "rejected"]),
+                transcript=_rng.choice(CALL_TRANSCRIPTS) if dur > 0 else None,
             ))
 
         # Organized network calls (high frequency within group)
@@ -335,6 +366,7 @@ async def seed():
                 duration_seconds=dur,
                 call_type="voice",
                 status="answered",
+                transcript=_rng.choice(CALL_TRANSCRIPTS),
             ))
 
         # Burst: msisdns[7] suddenly calls many new numbers in last 5 days
@@ -352,6 +384,7 @@ async def seed():
                 duration_seconds=dur,
                 call_type="voice",
                 status="answered",
+                transcript=_rng.choice(CALL_TRANSCRIPTS),
             ))
 
         # Additional calls for key MSISDNs to enrich analytics

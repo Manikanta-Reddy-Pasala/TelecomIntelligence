@@ -164,21 +164,22 @@ async def search_records(
         results["messages"] = messages
         results["total_messages"] = len(messages)
 
-    # --- Calls ---
+    # --- Calls (search by MSISDN or transcript content) ---
     if search_type in ("all", "calls"):
         calls: list[dict] = []
-        # Only search calls if q looks like a number (MSISDN match)
         q_stripped = q.replace("+", "").replace(" ", "")
+        # Build call search: by MSISDN if numeric, OR by transcript content
+        call_conditions = []
         if q_stripped.isdigit():
-            call_stmt = (
-                select(CallRecord)
-                .where(
-                    or_(
-                        CallRecord.caller_msisdn.ilike(f"%{q}%"),
-                        CallRecord.callee_msisdn.ilike(f"%{q}%"),
-                    )
-                )
-            )
+            call_conditions.append(or_(
+                CallRecord.caller_msisdn.ilike(f"%{q}%"),
+                CallRecord.callee_msisdn.ilike(f"%{q}%"),
+            ))
+        # Always search transcript text
+        call_conditions.append(CallRecord.transcript.ilike(f"%{q}%"))
+
+        if call_conditions:
+            call_stmt = select(CallRecord).where(or_(*call_conditions))
             if msisdn:
                 call_stmt = call_stmt.where(
                     or_(CallRecord.caller_msisdn == msisdn, CallRecord.callee_msisdn == msisdn)
@@ -197,6 +198,7 @@ async def search_records(
                     "duration": c.duration_seconds,
                     "status": c.status,
                     "call_type": c.call_type,
+                    "transcript": c.transcript,
                 })
         results["calls"] = calls
         results["total_calls"] = len(calls)

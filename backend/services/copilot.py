@@ -325,6 +325,7 @@ class CopilotService:
                     for c in calls:
                         other = c.callee_msisdn if c.caller_msisdn == msisdn else c.caller_msisdn
                         direction = "outgoing" if c.caller_msisdn == msisdn else "incoming"
+                        transcript_preview = f" | {c.transcript[:60]}..." if c.transcript else ""
                         call_row = {
                             "type": "call",
                             "timestamp": c.start_time.isoformat(),
@@ -333,7 +334,8 @@ class CopilotService:
                             "duration": c.duration_seconds,
                             "status": c.status,
                             "call_type": c.call_type,
-                            "description": f"{direction.title()} call {'to' if direction == 'outgoing' else 'from'} {other} ({c.duration_seconds}s)",
+                            "transcript": c.transcript,
+                            "description": f"{direction.title()} call {'to' if direction == 'outgoing' else 'from'} {other} ({c.duration_seconds}s){transcript_preview}",
                         }
                         result["timeline"].append(call_row)
                         call_evidence.append({
@@ -343,6 +345,7 @@ class CopilotService:
                             "duration_sec": c.duration_seconds,
                             "status": c.status,
                             "call_type": c.call_type,
+                            "transcript": c.transcript,
                         })
                     result["evidence"].append(Evidence(
                         source="Call Detail Records",
@@ -620,9 +623,21 @@ class CopilotService:
                         relevance=0.95,
                     ))
                     msg_count = search_results.get("total_messages", 0)
+                    call_count = search_results.get("total_calls", 0)
                     result["summary_parts"].append(
-                        f"Search '{search_text}': found {msg_count} messages"
+                        f"Search '{search_text}': found {msg_count} messages and {call_count} call transcripts"
                     )
+                    # Add matching calls to timeline
+                    for c in search_results.get("calls", []):
+                        result["timeline"].append({
+                            "type": "call",
+                            "timestamp": c["timestamp"],
+                            "from": c["caller"],
+                            "to": c["callee"],
+                            "duration": c.get("duration", 0),
+                            "description": f"Call transcript: {(c.get('transcript') or '')[:80]}",
+                            "preview": c.get("transcript"),
+                        })
                     # Add matching messages to timeline
                     for m in search_results.get("messages", []):
                         result["timeline"].append({
@@ -1000,31 +1015,40 @@ class CopilotService:
         if quoted:
             return quoted.group(1).strip()
 
-        # Common patterns
+        # Remove trailing context like "in calls", "in messages", "from calls"
+        msg = re.sub(r'\s+(?:in|from|across)\s+(?:calls?|messages?|sms|texts?|transcripts?)\s*$', '', msg, flags=re.IGNORECASE).strip()
+
+        # Try quoted text first
+        quoted_match = re.search(r'["\']([^"\']+)["\']', msg)
+        if quoted_match:
+            return quoted_match.group(1).strip()
+
+        # Common patterns (greedy to capture multi-word phrases)
         patterns = [
-            r'(?:search|find)\s+(?:messages?\s+)?(?:containing|with|about|for)\s+(.+?)$',
-            r'(?:search|find)\s+(?:for\s+)?(.+?)$',
-            r'(?:containing|mentions)\s+(.+?)$',
-            r'messages?\s+(?:about|containing|with)\s+(.+?)$',
+            r'(?:search|find)\s+(?:messages?\s+|calls?\s+)?(?:containing|with|about|mentioning)\s+(.+)$',
+            r'(?:search|find)\s+(?:for\s+)(.+)$',
+            r'(?:search|find)\s+(.+)$',
+            r'(?:containing|mentions?|mentioning)\s+(.+)$',
+            r'(?:messages?|calls?)\s+(?:about|containing|with|mentioning)\s+(.+)$',
         ]
         for pattern in patterns:
             m = re.search(pattern, msg, re.IGNORECASE)
             if m:
                 text = m.group(1).strip()
-                # Clean trailing prepositions
-                text = re.sub(r'\s+(for|from|to|in|of)\s*$', '', text, flags=re.IGNORECASE).strip()
+                # Clean trailing prepositions only
+                text = re.sub(r'\s+(for|from|to|of)\s*$', '', text, flags=re.IGNORECASE).strip()
                 if len(text) >= 2:
                     return text
 
-        # Fallback: remove common command words
-        for word in ["search", "find", "messages", "calls", "for", "in", "from", "to", "about", "containing"]:
+        # Fallback: remove only command verbs, keep the rest
+        for word in ["search", "find"]:
             msg = re.sub(r'\b' + word + r'\b', '', msg, flags=re.IGNORECASE)
         msg = msg.strip()
         return msg if len(msg) >= 2 else None
 
     async def _fetch_search(self, db: AsyncSession, query: str, msisdn: Optional[str],
                              dt_from: Optional[datetime] = None, dt_to: Optional[datetime] = None) -> dict:
-        """Search messages by content and optionally filter by MSISDN."""
+        """Search messages by content AND call transcripts."""
         # Search messages
         msg_stmt = select(Message).where(
             Message.content_preview.ilike(f"%{query}%")
@@ -1050,10 +1074,38 @@ class CopilotService:
                 "type": m.message_type,
             })
 
+        # Search call transcripts
+        call_stmt = select(CallRecord).where(
+            CallRecord.transcript.ilike(f"%{query}%")
+        )
+        if msisdn:
+            call_stmt = call_stmt.where(
+                or_(CallRecord.caller_msisdn == msisdn, CallRecord.callee_msisdn == msisdn)
+            )
+        if dt_from:
+            call_stmt = call_stmt.where(CallRecord.start_time >= dt_from)
+        if dt_to:
+            call_stmt = call_stmt.where(CallRecord.start_time <= dt_to)
+        call_stmt = call_stmt.order_by(CallRecord.start_time.desc()).limit(50)
+
+        call_res = await db.execute(call_stmt)
+        calls = []
+        for c in call_res.scalars().all():
+            calls.append({
+                "caller": c.caller_msisdn,
+                "callee": c.callee_msisdn,
+                "timestamp": c.start_time.isoformat(),
+                "duration": c.duration_seconds,
+                "transcript": c.transcript,
+                "call_type": c.call_type,
+            })
+
         return {
             "query": query,
             "total_messages": len(messages),
+            "total_calls": len(calls),
             "messages": messages,
+            "calls": calls,
         }
 
     # ------------------------------------------------------------------

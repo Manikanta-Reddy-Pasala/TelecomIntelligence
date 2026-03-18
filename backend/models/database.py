@@ -150,6 +150,7 @@ class CallRecord(Base):
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
     call_type: Mapped[str] = mapped_column(String(10), default="voice")  # voice/video
     status: Mapped[str] = mapped_column(String(10), default="answered")  # answered/missed/rejected
+    transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # call transcript/notes
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     caller_tower = relationship("Tower", foreign_keys=[caller_tower_id])

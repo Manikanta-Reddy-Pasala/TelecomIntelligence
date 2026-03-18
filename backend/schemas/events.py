@@ -15,6 +15,7 @@ class CallRecordResponse(BaseModel):
     duration_seconds: int
     call_type: str
     status: str
+    transcript: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
