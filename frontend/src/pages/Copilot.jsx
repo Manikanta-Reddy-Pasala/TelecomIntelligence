@@ -108,7 +108,13 @@ function ConfidenceBadge({ confidence }) {
 // ---------------------------------------------------------------------------
 function QueryPlan({ plan }) {
   const [open, setOpen] = useState(false);
-  if (!plan || plan.length === 0) return null;
+  if (!plan) return null;
+
+  // Handle both object and array formats
+  const isObj = plan && typeof plan === 'object' && !Array.isArray(plan);
+  const steps = isObj ? [plan] : (Array.isArray(plan) ? plan : []);
+  if (steps.length === 0) return null;
+
   return (
     <div className="mt-2">
       <button
@@ -117,16 +123,30 @@ function QueryPlan({ plan }) {
       >
         {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         <Database size={10} />
-        Query Plan ({plan.length} {plan.length === 1 ? 'query' : 'queries'})
+        {isObj ? `Intent: ${plan.intent || 'unknown'}` : `Query Plan (${steps.length})`}
       </button>
       {open && (
         <div className="mt-1.5 space-y-1 ml-5">
-          {plan.map((step, i) => (
-            <div key={i} className="text-[11px] font-mono text-slate-500 bg-slate-800/40 rounded-md px-2.5 py-1.5 border border-slate-700/30">
-              <span className="text-blue-400 font-semibold">[{step.source || 'query'}]</span>{' '}
-              <span className="text-slate-400">{step.description || step.query || JSON.stringify(step)}</span>
+          {isObj ? (
+            <div className="text-[11px] font-mono text-slate-500 bg-slate-800/40 rounded-md px-2.5 py-1.5 border border-slate-700/30">
+              <span className="text-blue-400 font-semibold">[{plan.intent}]</span>{' '}
+              <span className="text-slate-400">{plan.description}</span>
+              {plan.parameters && Object.keys(plan.parameters).length > 0 && (
+                <div className="mt-1 text-slate-600">
+                  {Object.entries(plan.parameters).map(([k, v]) => (
+                    <span key={k} className="mr-2">{k}=<span className="text-emerald-400">{String(v)}</span></span>
+                  ))}
+                </div>
+              )}
             </div>
-          ))}
+          ) : (
+            steps.map((step, i) => (
+              <div key={i} className="text-[11px] font-mono text-slate-500 bg-slate-800/40 rounded-md px-2.5 py-1.5 border border-slate-700/30">
+                <span className="text-blue-400 font-semibold">[{step.source || step.intent || 'query'}]</span>{' '}
+                <span className="text-slate-400">{step.description || JSON.stringify(step)}</span>
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -187,8 +207,30 @@ function JsonValue({ value, depth = 0 }) {
 }
 
 // ---------------------------------------------------------------------------
-// Evidence Tab
+// Evidence Tab - shows structured data, not raw JSON
 // ---------------------------------------------------------------------------
+function RecordTable({ records, columns }) {
+  if (!records || records.length === 0) return <p className="text-xs text-slate-600 py-2">No records</p>;
+  const cols = columns || Object.keys(records[0]).filter(k => records[0][k] !== null);
+  return (
+    <div className="overflow-auto max-h-60">
+      <table className="w-full text-[11px]">
+        <thead className="sticky top-0 bg-slate-800/90">
+          <tr>{cols.map(c => <th key={c} className="text-left px-2 py-1.5 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-700/30">{c.replace(/_/g, ' ')}</th>)}</tr>
+        </thead>
+        <tbody className="divide-y divide-slate-800/20">
+          {records.slice(0, 30).map((r, i) => (
+            <tr key={i} className="hover:bg-slate-800/30">
+              {cols.map(c => <td key={c} className="px-2 py-1.5 text-slate-300 max-w-[180px] truncate">{typeof r[c] === 'object' ? JSON.stringify(r[c]) : String(r[c] ?? '--')}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {records.length > 30 && <p className="text-[10px] text-slate-600 text-center py-1">Showing 30 of {records.length}</p>}
+    </div>
+  );
+}
+
 function EvidenceTab({ evidence }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
 
@@ -201,76 +243,160 @@ function EvidenceTab({ evidence }) {
     );
   }
 
-  const sourceIcons = {
-    'Entity Profile': UserCircle,
-    CDR: Phone,
-    Messages: MessageSquare,
-    Contacts: GitBranch,
-    Anomalies: AlertTriangle,
-    Locations: MapPin,
-  };
-
   const sourceColors = {
     'Entity Profile': 'text-blue-400 bg-blue-500/10 border-blue-500/25',
-    CDR: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/25',
-    Messages: 'text-green-400 bg-green-500/10 border-green-500/25',
-    Contacts: 'text-violet-400 bg-violet-500/10 border-violet-500/25',
-    Anomalies: 'text-red-400 bg-red-500/10 border-red-500/25',
-    Locations: 'text-amber-400 bg-amber-500/10 border-amber-500/25',
+    'Call Detail Records': 'text-cyan-400 bg-cyan-500/10 border-cyan-500/25',
+    'Messages': 'text-green-400 bg-green-500/10 border-green-500/25',
+    'Contact Network': 'text-violet-400 bg-violet-500/10 border-violet-500/25',
+    'Anomaly Detection': 'text-red-400 bg-red-500/10 border-red-500/25',
+    'Location Trail': 'text-amber-400 bg-amber-500/10 border-amber-500/25',
+    'Pattern of Life': 'text-indigo-400 bg-indigo-500/10 border-indigo-500/25',
+    'Identity Changes (SIM/IMEI)': 'text-orange-400 bg-orange-500/10 border-orange-500/25',
+    'Night Activity': 'text-purple-400 bg-purple-500/10 border-purple-500/25',
+    'Activity Statistics': 'text-teal-400 bg-teal-500/10 border-teal-500/25',
+    'Search Results': 'text-pink-400 bg-pink-500/10 border-pink-500/25',
+    'Co-location Analysis': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/25',
   };
 
-  const defaultColor = 'text-slate-400 bg-slate-500/10 border-slate-500/25';
+  // Render evidence data based on source type
+  const renderContent = (item) => {
+    const d = item.data;
 
-  const relevanceBar = (r) => {
-    const pct = Math.round(r * 100);
-    let barColor = 'bg-blue-500';
-    if (pct >= 90) barColor = 'bg-red-500';
-    else if (pct >= 75) barColor = 'bg-amber-500';
-    return { pct, barColor };
+    // Entity Profile - show as key-value card
+    if (item.source === 'Entity Profile') {
+      return (
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2 p-3">
+          {Object.entries(d).filter(([k, v]) => v !== null && !Array.isArray(v)).map(([k, v]) => (
+            <div key={k}>
+              <span className="text-[10px] text-slate-500 uppercase">{k.replace(/_/g, ' ')}</span>
+              <div className="text-xs text-slate-200 font-medium">{typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}</div>
+            </div>
+          ))}
+          {d.phones && d.phones.length > 0 && (
+            <div className="col-span-2 mt-1">
+              <span className="text-[10px] text-slate-500 uppercase">Phones</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">{d.phones.map((p, i) => (
+                <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-slate-700/50 text-slate-300 font-mono">{p.msisdn} ({p.carrier})</span>
+              ))}</div>
+            </div>
+          )}
+          {d.devices && d.devices.length > 0 && (
+            <div className="col-span-2 mt-1">
+              <span className="text-[10px] text-slate-500 uppercase">Devices</span>
+              <div className="flex flex-wrap gap-1 mt-0.5">{d.devices.map((dv, i) => (
+                <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-slate-700/50 text-slate-300">{dv.model || dv.brand} ({dv.imei})</span>
+              ))}</div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // CDR / Messages - show as table
+    if (d.records) {
+      return <RecordTable records={d.records} />;
+    }
+
+    // Contacts - show as table
+    if (d.top_contacts) {
+      return <RecordTable records={d.top_contacts} columns={['msisdn', 'outgoing_calls', 'incoming_calls', 'outgoing_messages', 'incoming_messages', 'total_duration_sec']} />;
+    }
+
+    // Anomalies - show alerts as cards
+    if (d.alerts) {
+      return (
+        <div className="space-y-2 p-2">
+          <div className="flex gap-3 text-[10px] text-slate-500 mb-1">
+            <span>Stored: {d.stored_alerts || 0}</span>
+            <span>Realtime: {d.realtime_impossible_travel || 0}</span>
+          </div>
+          {d.alerts.map((a, i) => (
+            <div key={i} className={`p-2.5 rounded-lg border ${a.severity === 'critical' ? 'border-red-500/30 bg-red-500/5' : a.severity === 'high' ? 'border-orange-500/30 bg-orange-500/5' : 'border-slate-700/30 bg-slate-800/30'}`}>
+              <div className="flex items-center gap-2">
+                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${a.severity === 'critical' ? 'bg-red-500/20 text-red-400' : a.severity === 'high' ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-600/20 text-slate-400'}`}>{a.severity}</span>
+                <span className="text-[10px] text-slate-400 font-medium">{(a.type || a.anomaly || '').replace(/_/g, ' ')}</span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-1">{a.description}</p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // Search Results
+    if (d.messages || d.calls) {
+      return (
+        <div className="p-2 space-y-2">
+          {d.messages && d.messages.length > 0 && (
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase mb-1">Messages ({d.total_messages})</div>
+              <RecordTable records={d.messages} columns={['sender', 'receiver', 'timestamp', 'content', 'type']} />
+            </div>
+          )}
+          {d.calls && d.calls.length > 0 && (
+            <div>
+              <div className="text-[10px] text-slate-500 uppercase mb-1">Call Transcripts ({d.total_calls})</div>
+              <RecordTable records={d.calls} columns={['caller', 'callee', 'timestamp', 'duration', 'transcript']} />
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Default: key-value for simple objects, or JSON for complex
+    const simpleKeys = Object.entries(d).filter(([k, v]) => typeof v !== 'object' || v === null);
+    const complexKeys = Object.entries(d).filter(([k, v]) => typeof v === 'object' && v !== null);
+    return (
+      <div className="p-3">
+        {simpleKeys.length > 0 && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mb-2">
+            {simpleKeys.map(([k, v]) => (
+              <div key={k}>
+                <span className="text-[10px] text-slate-500">{k.replace(/_/g, ' ')}</span>
+                <span className="text-xs text-slate-300 ml-2">{String(v ?? '--')}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {complexKeys.length > 0 && (
+          <pre className="text-[10px] text-slate-400 font-mono overflow-auto max-h-40 mt-1 p-2 bg-slate-900/50 rounded-lg">
+            {JSON.stringify(Object.fromEntries(complexKeys), null, 2)}
+          </pre>
+        )}
+      </div>
+    );
   };
 
   return (
     <div className="overflow-auto max-h-[calc(100vh-260px)] space-y-3 pr-1">
       {evidence.map((item, i) => {
-        const Icon = sourceIcons[item.source] || FileText;
-        const colorCls = sourceColors[item.source] || defaultColor;
-        const { pct, barColor } = relevanceBar(item.relevance);
+        const colorCls = sourceColors[item.source] || 'text-slate-400 bg-slate-500/10 border-slate-500/25';
         const isExpanded = expandedIdx === i;
+
+        // Count items
+        const d = item.data;
+        const countLabel = d.total || d.total_contacts || d.total_anomalies || d.total_points || d.total_messages || d.total_calls || '';
 
         return (
           <div key={i} className="rounded-xl border border-slate-700/40 bg-slate-800/30 backdrop-blur-sm overflow-hidden animate-fade-in">
             <button
               onClick={() => setExpandedIdx(isExpanded ? null : i)}
-              className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-slate-800/50 transition-colors group"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/50 transition-colors group"
             >
               <div className="flex items-center gap-3">
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${colorCls}`}>
-                  <Icon size={11} />
                   {item.source}
                 </span>
-                <span className="text-xs text-slate-500">
-                  {item.data?.total || item.data?.total_contacts || item.data?.total_anomalies || item.data?.total_points || ''}
-                  {item.data?.records ? ' records' : item.data?.top_contacts ? ' contacts' : item.data?.alerts ? ' alerts' : item.data?.sample_locations ? ' points' : ''}
-                </span>
+                {countLabel && <span className="text-xs text-slate-500">{countLabel} items</span>}
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-20 h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-mono w-8 text-right">{pct}%</span>
-                </div>
-                <ChevronDown
+              <ChevronDown
                   size={14}
                   className={`text-slate-500 transition-transform duration-200 group-hover:text-slate-400 ${isExpanded ? 'rotate-180' : ''}`}
                 />
-              </div>
             </button>
             {isExpanded && (
-              <div className="border-t border-slate-700/30 bg-slate-900/40">
-                <div className="p-4 text-[12px] font-mono leading-relaxed overflow-auto max-h-[400px]">
-                  <JsonValue value={item.data} depth={0} />
-                </div>
+              <div className="border-t border-slate-700/30 bg-slate-900/30">
+                {renderContent(item)}
               </div>
             )}
           </div>
@@ -1260,7 +1386,9 @@ export default function Copilot() {
       const aiMsg = {
         role: 'assistant',
         content: response.response || response.message || '',
-        confidence: response.confidence || 'medium',
+        confidence: typeof response.confidence === 'number'
+          ? (response.confidence >= 0.7 ? 'high' : response.confidence >= 0.4 ? 'medium' : 'low')
+          : (response.confidence || 'medium'),
         evidence: response.evidence || [],
         timeline: response.timeline || [],
         locations: response.locations || [],
