@@ -1391,8 +1391,8 @@ export default function Copilot() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const handleSend = useCallback(async (directMessage) => {
+    const text = (directMessage || input).trim();
     if (!text || loading) return;
 
     const userMsg = { role: 'user', content: text, timestamp: new Date().toISOString() };
@@ -1740,7 +1740,7 @@ export default function Copilot() {
             </div>
           ) : (
             <>
-              {activeTab === 'tools' && <ToolsTab evidence={activeEvidence.evidence} entity={activeEvidence.entity} onQuery={(q) => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }} />}
+              {activeTab === 'tools' && <ToolsTab evidence={activeEvidence.evidence} entity={activeEvidence.entity} onQuery={(q) => handleSend(q)} />}
               {activeTab === 'timeline' && <TimelineTab events={activeEvidence.timeline} />}
               {activeTab === 'map' && <MapTab locations={activeEvidence.locations} />}
               {activeTab === 'contacts' && <ContactsTab graphData={activeEvidence.graph} />}
