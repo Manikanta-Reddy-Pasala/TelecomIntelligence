@@ -45,6 +45,7 @@ _INTENT_KEYWORDS = {
     "top_contacts": ["top contact", "most called", "frequently called", "frequent contact", "heatmap", "top numbers"],
     "report": ["report", "dossier", "full report", "generate report", "comprehensive report"],
     "stats": ["stats", "statistics", "summary stats", "activity stats", "quick stats"],
+    "search": ["search", "find message", "find messages", "find text", "search text", "search message", "search call", "containing", "mentions", "said", "wrote"],
 }
 
 
@@ -237,7 +238,7 @@ class CopilotService:
         advanced_intents = [
             "tower_dump", "geofence", "pattern_of_life", "identity_change",
             "common_numbers", "call_chain", "night_activity", "top_contacts",
-            "report", "stats",
+            "report", "stats", "search",
         ]
         for intent in advanced_intents:
             keywords = _INTENT_KEYWORDS.get(intent, [])
@@ -284,8 +285,8 @@ class CopilotService:
             if person and person.phone_numbers:
                 msisdn = person.phone_numbers[0].msisdn
 
-        if not msisdn and not person_name:
-            # No identifiers found - can't do much
+        if not msisdn and not person_name and intent != "search":
+            # No identifiers found and not a search query - can't do much
             return result
 
         if msisdn:
@@ -605,6 +606,34 @@ class CopilotService:
                     result["evidence"].append(Evidence(source="Activity Statistics", data=stats, relevance=0.85))
                 result["has_data"] = True
                 result["summary_parts"].append("Full investigation report generated with all sections")
+
+        # === SEARCH (works with or without MSISDN) ===
+        if intent == "search":
+            search_text = self._extract_search_query(message, msisdn)
+            if search_text:
+                search_results = await self._fetch_search(db, search_text, msisdn, dt_from, dt_to)
+                if search_results:
+                    result["has_data"] = True
+                    result["evidence"].append(Evidence(
+                        source="Search Results",
+                        data=search_results,
+                        relevance=0.95,
+                    ))
+                    msg_count = search_results.get("total_messages", 0)
+                    result["summary_parts"].append(
+                        f"Search '{search_text}': found {msg_count} messages"
+                    )
+                    # Add matching messages to timeline
+                    for m in search_results.get("messages", []):
+                        result["timeline"].append({
+                            "type": "sms",
+                            "timestamp": m["timestamp"],
+                            "from": m["sender"],
+                            "to": m["receiver"],
+                            "description": f"SMS: {m.get('content', '')}",
+                            "preview": m.get("content"),
+                        })
+                    result["timeline"].sort(key=lambda x: x["timestamp"], reverse=True)
 
         return result
 
@@ -951,6 +980,80 @@ class CopilotService:
             "unique_contacts": len(contacts_set),
             "most_active_hour": f"{int(hr_res.hr):02d}:00" if hr_res else None,
             "most_active_day": dow_names.get(int(dow_res.dow), "Unknown") if dow_res else None,
+        }
+
+    # ------------------------------------------------------------------
+    # Search helpers
+    # ------------------------------------------------------------------
+
+    def _extract_search_query(self, message: str, msisdn: Optional[str]) -> Optional[str]:
+        """Extract the search text from the user's message."""
+        msg = message
+        # Remove MSISDN from message
+        if msisdn:
+            msg = msg.replace(msisdn, "").strip()
+        # Remove trailing "for" if MSISDN was removed
+        msg = re.sub(r'\s+for\s*$', '', msg).strip()
+
+        # Try quoted text first
+        quoted = re.search(r'["\']([^"\']+)["\']', msg)
+        if quoted:
+            return quoted.group(1).strip()
+
+        # Common patterns
+        patterns = [
+            r'(?:search|find)\s+(?:messages?\s+)?(?:containing|with|about|for)\s+(.+?)$',
+            r'(?:search|find)\s+(?:for\s+)?(.+?)$',
+            r'(?:containing|mentions)\s+(.+?)$',
+            r'messages?\s+(?:about|containing|with)\s+(.+?)$',
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, msg, re.IGNORECASE)
+            if m:
+                text = m.group(1).strip()
+                # Clean trailing prepositions
+                text = re.sub(r'\s+(for|from|to|in|of)\s*$', '', text, flags=re.IGNORECASE).strip()
+                if len(text) >= 2:
+                    return text
+
+        # Fallback: remove common command words
+        for word in ["search", "find", "messages", "calls", "for", "in", "from", "to", "about", "containing"]:
+            msg = re.sub(r'\b' + word + r'\b', '', msg, flags=re.IGNORECASE)
+        msg = msg.strip()
+        return msg if len(msg) >= 2 else None
+
+    async def _fetch_search(self, db: AsyncSession, query: str, msisdn: Optional[str],
+                             dt_from: Optional[datetime] = None, dt_to: Optional[datetime] = None) -> dict:
+        """Search messages by content and optionally filter by MSISDN."""
+        # Search messages
+        msg_stmt = select(Message).where(
+            Message.content_preview.ilike(f"%{query}%")
+        )
+        if msisdn:
+            msg_stmt = msg_stmt.where(
+                or_(Message.sender_msisdn == msisdn, Message.receiver_msisdn == msisdn)
+            )
+        if dt_from:
+            msg_stmt = msg_stmt.where(Message.timestamp >= dt_from)
+        if dt_to:
+            msg_stmt = msg_stmt.where(Message.timestamp <= dt_to)
+        msg_stmt = msg_stmt.order_by(Message.timestamp.desc()).limit(50)
+
+        msg_res = await db.execute(msg_stmt)
+        messages = []
+        for m in msg_res.scalars().all():
+            messages.append({
+                "sender": m.sender_msisdn,
+                "receiver": m.receiver_msisdn,
+                "timestamp": m.timestamp.isoformat(),
+                "content": m.content_preview,
+                "type": m.message_type,
+            })
+
+        return {
+            "query": query,
+            "total_messages": len(messages),
+            "messages": messages,
         }
 
     # ------------------------------------------------------------------

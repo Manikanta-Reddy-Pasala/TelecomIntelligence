@@ -1088,7 +1088,7 @@ export default function Copilot() {
     { text: 'Check anomalies for +919845122940', icon: AlertTriangle },
     { text: 'Pattern of life for +919656152900', icon: Clock },
     { text: 'Night activity for +919845122940', icon: Eye },
-    { text: 'Top contacts for +919679984033', icon: Phone },
+    { text: 'Search messages containing "transfer completed"', icon: MessageSquare },
     { text: 'Identity changes for +919378304807', icon: Shield },
     { text: 'Generate report for +919656152900', icon: FileText },
   ];

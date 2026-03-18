@@ -69,6 +69,16 @@ KEY FINDINGS:
 - 3000+ inter-group calls — 10x above normal
 - 10PM-4AM pattern — avoiding business hours
 - 4.5 min avg duration — operational coordination, not social
-RISK LEVEL: CRITICAL — organized network with nighttime ops pattern"""
+RISK LEVEL: CRITICAL — organized network with nighttime ops pattern
+
+Example 6:
+Query: Search messages containing "transfer" for +919656152900
+Facts: 8 messages found with "transfer" keyword. TXN references and payment confirmations.
+Response:
+SUMMARY: 8 messages with "transfer" found — financial transaction messaging detected.
+KEY FINDINGS:
+- 8 messages with transfer/payment language — traceable TXN IDs
+- Cross-reference with banking records recommended
+RISK LEVEL: MEDIUM — financial messaging warrants transaction audit"""
 
 TEMPLATE """{{ .Prompt }}"""

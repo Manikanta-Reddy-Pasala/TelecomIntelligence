@@ -118,6 +118,117 @@ async def _get_contacts_for_msisdn(
 
 
 # ---------------------------------------------------------------------------
+# 0. Full-Text Search
+# ---------------------------------------------------------------------------
+
+
+@router.get("/search")
+async def search_records(
+    db: DB,
+    user: CurrentUser,
+    q: str = Query(..., min_length=2, description="Search text"),
+    search_type: str = Query("all", description="all, messages, calls, persons"),
+    msisdn: Optional[str] = Query(None, description="Filter by MSISDN"),
+    from_date: Optional[datetime] = Query(None, alias="from"),
+    to_date: Optional[datetime] = Query(None, alias="to"),
+    limit: int = Query(50, le=200),
+):
+    """Search across messages, calls, and persons."""
+    results: dict = {}
+
+    # --- Messages ---
+    if search_type in ("all", "messages"):
+        msg_stmt = (
+            select(Message)
+            .where(Message.content_preview.ilike(f"%{q}%"))
+        )
+        if msisdn:
+            msg_stmt = msg_stmt.where(
+                or_(Message.sender_msisdn == msisdn, Message.receiver_msisdn == msisdn)
+            )
+        if from_date:
+            msg_stmt = msg_stmt.where(Message.timestamp >= from_date)
+        if to_date:
+            msg_stmt = msg_stmt.where(Message.timestamp <= to_date)
+        msg_stmt = msg_stmt.order_by(Message.timestamp.desc()).limit(limit)
+        msg_res = await db.execute(msg_stmt)
+        messages = []
+        for m in msg_res.scalars().all():
+            messages.append({
+                "sender": m.sender_msisdn,
+                "receiver": m.receiver_msisdn,
+                "timestamp": m.timestamp.isoformat(),
+                "content": m.content_preview,
+                "type": m.message_type,
+            })
+        results["messages"] = messages
+        results["total_messages"] = len(messages)
+
+    # --- Calls ---
+    if search_type in ("all", "calls"):
+        calls: list[dict] = []
+        # Only search calls if q looks like a number (MSISDN match)
+        q_stripped = q.replace("+", "").replace(" ", "")
+        if q_stripped.isdigit():
+            call_stmt = (
+                select(CallRecord)
+                .where(
+                    or_(
+                        CallRecord.caller_msisdn.ilike(f"%{q}%"),
+                        CallRecord.callee_msisdn.ilike(f"%{q}%"),
+                    )
+                )
+            )
+            if msisdn:
+                call_stmt = call_stmt.where(
+                    or_(CallRecord.caller_msisdn == msisdn, CallRecord.callee_msisdn == msisdn)
+                )
+            if from_date:
+                call_stmt = call_stmt.where(CallRecord.start_time >= from_date)
+            if to_date:
+                call_stmt = call_stmt.where(CallRecord.start_time <= to_date)
+            call_stmt = call_stmt.order_by(CallRecord.start_time.desc()).limit(limit)
+            call_res = await db.execute(call_stmt)
+            for c in call_res.scalars().all():
+                calls.append({
+                    "caller": c.caller_msisdn,
+                    "callee": c.callee_msisdn,
+                    "start_time": c.start_time.isoformat(),
+                    "duration": c.duration_seconds,
+                    "status": c.status,
+                    "call_type": c.call_type,
+                })
+        results["calls"] = calls
+        results["total_calls"] = len(calls)
+
+    # --- Persons ---
+    if search_type in ("all", "persons"):
+        person_stmt = (
+            select(Person)
+            .where(Person.name.ilike(f"%{q}%"))
+            .limit(limit)
+        )
+        person_res = await db.execute(person_stmt)
+        persons = []
+        for p in person_res.scalars().all():
+            persons.append({
+                "id": p.id,
+                "name": p.name,
+                "nationality": p.nationality,
+                "risk_score": p.risk_score,
+                "watchlist_status": p.watchlist_status,
+            })
+        results["persons"] = persons
+        results["total_persons"] = len(persons)
+
+    return {
+        "query": q,
+        "search_type": search_type,
+        "results": results,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 1. Tower Dump Analysis
 # ---------------------------------------------------------------------------
 
