@@ -1251,29 +1251,63 @@ function EntityCardTab({ entity }) {
 // ---------------------------------------------------------------------------
 // Main Copilot Component
 // ---------------------------------------------------------------------------
-function PatternOfLifeTab({ data, entity }) {
-  if (!data) {
-    return <div className="text-sm text-slate-600 text-center py-8">No pattern of life data available</div>;
+function PatternOfLifeTab({ data, entity, evidence }) {
+  const [expandedTool, setExpandedTool] = useState(null);
+  const [toolResults, setToolResults] = useState({});
+  const [toolLoading, setToolLoading] = useState(null);
+
+  const msisdn = entity?.msisdn || '';
+
+  const tools = [
+    { id: 'anomalies', label: 'Anomaly Check', icon: AlertTriangle, query: `check anomalies for ${msisdn}` },
+    { id: 'night', label: 'Night Activity', icon: Eye, query: `night activity for ${msisdn}` },
+    { id: 'identity', label: 'Identity Changes', icon: Shield, query: `identity changes for ${msisdn}` },
+    { id: 'top', label: 'Top Contacts', icon: Phone, query: `top contacts for ${msisdn}` },
+    { id: 'stats', label: 'Activity Stats', icon: Activity, query: `activity stats for ${msisdn}` },
+    { id: 'report', label: 'Full Report', icon: FileText, query: `generate report for ${msisdn}` },
+    { id: 'search_msg', label: 'Search Messages', icon: MessageSquare, query: `search messages containing "transfer" for ${msisdn}` },
+    { id: 'search_call', label: 'Search Transcripts', icon: Radio, query: `search calls mentioning "warehouse" for ${msisdn}` },
+  ];
+
+  const handleToolClick = async (tool) => {
+    if (expandedTool === tool.id) {
+      setExpandedTool(null);
+      return;
+    }
+    setExpandedTool(tool.id);
+    if (toolResults[tool.id]) return; // already loaded
+    setToolLoading(tool.id);
+    try {
+      const resp = await copilotService.chat(tool.query, null, []);
+      setToolResults(prev => ({ ...prev, [tool.id]: resp }));
+    } catch (err) {
+      setToolResults(prev => ({ ...prev, [tool.id]: { error: err.message } }));
+    }
+    setToolLoading(null);
+  };
+
+  if (!data && !entity) {
+    return <div className="text-sm text-slate-600 text-center py-8">No investigation data available</div>;
   }
 
   const hourLabels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`);
   const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-  const hourlyData = Array.from({ length: 24 }, (_, i) => ({
+  const hourlyData = data ? Array.from({ length: 24 }, (_, i) => ({
     hour: hourLabels[i],
     calls: (data.hourly_calls || [])[i] || 0,
     messages: (data.hourly_messages || [])[i] || 0,
     total: ((data.hourly_calls || [])[i] || 0) + ((data.hourly_messages || [])[i] || 0),
-  }));
+  })) : [];
 
-  const weeklyData = dayLabels.map((day, i) => ({
+  const weeklyData = data ? dayLabels.map((day, i) => ({
     day,
     calls: (data.weekly_calls || [])[i] || 0,
     messages: (data.weekly_messages || [])[i] || 0,
     total: ((data.weekly_calls || [])[i] || 0) + ((data.weekly_messages || [])[i] || 0),
-  }));
+  })) : [];
 
-  const routineScore = data.routine_score || 0;
+  const routineScore = data ? (data.routine_score || 0) : 0;
   const routineColor = routineScore > 0.6 ? '#22c55e' : routineScore > 0.3 ? '#f59e0b' : '#ef4444';
   const routineLabel = routineScore > 0.6 ? 'Highly Predictable' : routineScore > 0.3 ? 'Moderately Predictable' : 'Unpredictable';
 
@@ -1320,13 +1354,13 @@ function PatternOfLifeTab({ data, entity }) {
       <div className="flex items-center justify-between p-4 rounded-xl bg-gradient-to-r from-slate-800/60 to-slate-800/30 border border-slate-700/40">
         <div>
           <h3 className="text-lg font-bold text-slate-100">
-            {entity?.name || 'Unknown'} — Pattern of Life
+            {entity?.name || 'Unknown'} — Investigation
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            {data.analysis_days || 30} days | {data.total_calls || 0} calls | {data.total_messages || 0} messages
-            {data.peak_hour && <span> | Peak: {data.peak_hour}</span>}
-            {data.peak_day && <span> ({data.peak_day})</span>}
-            {data.avg_call_duration_sec != null && <span> | Avg call: {Math.round(data.avg_call_duration_sec / 60)}min</span>}
+            {data ? `${data.analysis_days || 30} days | ${data.total_calls || 0} calls | ${data.total_messages || 0} messages` : 'Ask "pattern of life" to load analysis'}
+            {data?.peak_hour && <span> | Peak: {data.peak_hour}</span>}
+            {data?.peak_day && <span> ({data.peak_day})</span>}
+            {data?.avg_call_duration_sec != null && <span> | Avg call: {Math.round(data.avg_call_duration_sec / 60)}min</span>}
           </p>
         </div>
         <div className="text-right">
@@ -1357,7 +1391,7 @@ function PatternOfLifeTab({ data, entity }) {
       </div>
 
       {/* Key Locations */}
-      <div>
+      {data && <div>
         <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
           <MapPin size={12} /> Key Locations
         </h4>
@@ -1381,10 +1415,10 @@ function PatternOfLifeTab({ data, entity }) {
             location={data.weekend_location}
           />
         </div>
-      </div>
+      </div>}
 
       {/* Hourly Communication Pattern */}
-      <div>
+      {data && hourlyData.length > 0 && <div>
         <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
           <Phone size={12} /> Hourly Communication (Calls + Messages)
         </h4>
@@ -1413,10 +1447,9 @@ function PatternOfLifeTab({ data, entity }) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </div>}
 
-      {/* Weekly Communication Pattern */}
-      <div>
+      {data && weeklyData.length > 0 && <div>
         <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
           <Calendar size={12} /> Weekly Communication
         </h4>
@@ -1434,10 +1467,10 @@ function PatternOfLifeTab({ data, entity }) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </div>}
 
       {/* Top Contacts */}
-      {data.top_contacts && data.top_contacts.length > 0 && (
+      {data && data.top_contacts && data.top_contacts.length > 0 && (
         <div>
           <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Users size={12} /> Top Contacts
@@ -1461,7 +1494,7 @@ function PatternOfLifeTab({ data, entity }) {
       )}
 
       {/* Regular Routes */}
-      {data.regular_routes && data.regular_routes.length > 0 && (
+      {data && data.regular_routes && data.regular_routes.length > 0 && (
         <div>
           <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Navigation size={12} /> Regular Routes
@@ -1486,6 +1519,75 @@ function PatternOfLifeTab({ data, entity }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Investigation Tools - expandable inline */}
+      {msisdn && (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Search size={12} /> Investigation Tools
+          </h4>
+          <div className="space-y-1.5">
+            {tools.map((tool) => {
+              const TIcon = tool.icon;
+              const isExpanded = expandedTool === tool.id;
+              const result = toolResults[tool.id];
+              const isLoading = toolLoading === tool.id;
+
+              return (
+                <div key={tool.id} className="rounded-xl border border-slate-700/30 bg-slate-800/20 overflow-hidden">
+                  <button
+                    onClick={() => handleToolClick(tool)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-slate-800/50 transition-colors text-left"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-slate-700/30 flex items-center justify-center shrink-0">
+                      <TIcon size={13} className="text-slate-400" />
+                    </div>
+                    <span className="text-[11px] font-medium text-slate-200 flex-1">{tool.label}</span>
+                    {isLoading && <Loader2 size={12} className="text-blue-400 animate-spin" />}
+                    {result && !result.error && <div className="w-1.5 h-1.5 rounded-full bg-green-400" />}
+                    <ChevronDown size={12} className={`text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-slate-700/20 px-3 py-3 bg-slate-900/30">
+                      {isLoading && (
+                        <div className="flex items-center gap-2 py-4 justify-center">
+                          <Loader2 size={14} className="text-blue-400 animate-spin" />
+                          <span className="text-[11px] text-slate-500">Analyzing...</span>
+                        </div>
+                      )}
+                      {result && result.error && (
+                        <p className="text-[11px] text-red-400">{result.error}</p>
+                      )}
+                      {result && !result.error && !isLoading && (
+                        <div className="space-y-2">
+                          {/* LLM Response */}
+                          <div className="text-[11px] text-slate-200 leading-relaxed whitespace-pre-wrap">
+                            {formatBoldText(result.response || '--')}
+                          </div>
+                          {/* Evidence summary */}
+                          {result.evidence && result.evidence.length > 0 && (
+                            <div className="space-y-1 mt-2">
+                              {result.evidence.map((ev, i) => (
+                                <details key={i} className="text-[10px]">
+                                  <summary className="text-slate-400 cursor-pointer hover:text-slate-200">{ev.source} ({Math.round(ev.relevance * 100)}%)</summary>
+                                  <pre className="text-[9px] text-slate-500 font-mono overflow-auto max-h-32 mt-1 p-2 bg-slate-900/50 rounded whitespace-pre-wrap">
+                                    {JSON.stringify(ev.data, null, 2)}
+                                  </pre>
+                                </details>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1553,7 +1655,7 @@ export default function Copilot() {
       else if (aiMsg.timeline && aiMsg.timeline.length > 0) setActiveTab('timeline');
       else if (aiMsg.locations && aiMsg.locations.length > 0) setActiveTab('map');
       else if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('contacts');
-      else if (aiMsg.evidence && aiMsg.evidence.length > 0) setActiveTab('tools');
+      else if (aiMsg.evidence && aiMsg.evidence.length > 0) setActiveTab('pol');
     } catch (err) {
       const errMsg = {
         role: 'assistant',
@@ -1596,8 +1698,7 @@ export default function Copilot() {
 
   const targetName = activeEvidence?.entity?.name;
   const tabs = [
-    { key: 'pol', label: 'Pattern of Life', icon: Activity },
-    { key: 'tools', label: 'Tools', icon: Search },
+    { key: 'pol', label: 'Investigation', icon: Activity },
     { key: 'timeline', label: 'Timeline', icon: Clock },
     { key: 'map', label: 'Map', icon: MapPin },
     { key: 'contacts', label: 'Contacts', icon: Users },
@@ -1732,7 +1833,7 @@ export default function Copilot() {
                       <button
                         onClick={() => {
                           setActiveEvidence(msg);
-                          setActiveTab('tools');
+                          setActiveTab('pol');
                         }}
                         className="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/8 border border-blue-500/15 hover:bg-blue-500/15 transition-all"
                       >
@@ -1865,12 +1966,12 @@ export default function Copilot() {
             </div>
           ) : (
             <>
-              {activeTab === 'tools' && <ToolsTab evidence={activeEvidence.evidence} entity={activeEvidence.entity} onQuery={(q) => handleSend(q)} />}
+              {/* tools tab removed - tools are inside POL/Investigation tab */}
               {activeTab === 'timeline' && <TimelineTab events={activeEvidence.timeline} />}
               {activeTab === 'map' && <MapTab locations={activeEvidence.locations} />}
               {activeTab === 'contacts' && <ContactsTab graphData={activeEvidence.graph} timeline={activeEvidence.timeline} />}
               {activeTab === 'entity' && <EntityCardTab entity={activeEvidence.entity} />}
-              {activeTab === 'pol' && <PatternOfLifeTab data={activeEvidence.pattern_of_life} entity={activeEvidence.entity} />}
+              {activeTab === 'pol' && <PatternOfLifeTab data={activeEvidence.pattern_of_life} entity={activeEvidence.entity} evidence={activeEvidence.evidence} />}
             </>
           )}
         </div>
