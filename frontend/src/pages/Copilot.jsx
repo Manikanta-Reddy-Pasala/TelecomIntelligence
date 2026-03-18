@@ -31,6 +31,8 @@ import {
   Target,
   Search,
   Zap,
+  ArrowRight,
+  Users,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import {
@@ -77,6 +79,16 @@ function formatBoldText(text) {
     }
     return part;
   });
+}
+
+function safeFormat(dateVal, fmt, fallback = '--') {
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return fallback;
+    return format(d, fmt);
+  } catch {
+    return fallback;
+  }
 }
 
 function interpolateColor(ratio) {
@@ -261,6 +273,9 @@ function EvidenceTab({ evidence }) {
   // Render evidence data based on source type
   const renderContent = (item) => {
     const d = item.data;
+    if (!d || typeof d !== 'object') {
+      return <p className="text-xs text-slate-500 p-3">{d == null ? 'No data' : String(d)}</p>;
+    }
 
     // Entity Profile - show as key-value card
     if (item.source === 'Entity Profile') {
@@ -422,12 +437,15 @@ function TimelineTab({ events }) {
   const colorMap = { call: '#3b82f6', sms: '#22c55e', location: '#a855f7', data: '#f59e0b' };
   const typeLevel = { call: 3, sms: 2, location: 1, data: 0 };
 
-  const chartData = events.map((evt, i) => ({
-    x: new Date(evt.timestamp || evt.time || Date.now()).getTime(),
-    y: typeLevel[evt.type] ?? 0,
-    ...evt,
-    index: i,
-  }));
+  const chartData = events.map((evt, i) => {
+    const ts = new Date(evt.timestamp || evt.time || Date.now()).getTime();
+    return {
+      x: isNaN(ts) ? Date.now() : ts,
+      y: typeLevel[evt.type] ?? 0,
+      ...evt,
+      index: i,
+    };
+  });
 
   return (
     <div className="h-[calc(100vh-260px)] flex flex-col">
@@ -450,7 +468,7 @@ function TimelineTab({ events }) {
               dataKey="x"
               type="number"
               domain={['dataMin', 'dataMax']}
-              tickFormatter={(val) => format(new Date(val), 'HH:mm')}
+              tickFormatter={(val) => safeFormat(val, 'HH:mm', '')}
               stroke="#334155"
               tick={{ fill: '#64748b', fontSize: 11 }}
               name="Time"
@@ -476,7 +494,7 @@ function TimelineTab({ events }) {
                       {d.type} Event
                     </div>
                     <div className="text-slate-400">
-                      {d.timestamp ? format(new Date(d.timestamp), 'MMM d, HH:mm:ss') : 'N/A'}
+                      {d.timestamp ? safeFormat(d.timestamp, 'MMM d, HH:mm:ss', 'N/A') : 'N/A'}
                     </div>
                     {d.from && <div className="text-slate-500 mt-1">From: {d.from}</div>}
                     {d.to && <div className="text-slate-500">To: {d.to}</div>}
@@ -516,7 +534,7 @@ function TimelineTab({ events }) {
               style={{ backgroundColor: colorMap[evt.type] || '#64748b' }}
             />
             <span className="text-slate-500 font-mono w-16 shrink-0">
-              {evt.timestamp ? format(new Date(evt.timestamp), 'HH:mm:ss') : '--:--:--'}
+              {evt.timestamp ? safeFormat(evt.timestamp, 'HH:mm:ss', '--:--:--') : '--:--:--'}
             </span>
             <span className="text-slate-400 capitalize w-14 shrink-0 font-medium">{evt.type}</span>
             <span className="text-slate-300 truncate">{evt.description || `${evt.from || ''} -> ${evt.to || ''}`}</span>
@@ -556,7 +574,7 @@ function MapTab({ locations }) {
   }
 
   const validLocations = locations.filter(
-    (loc) => loc.latitude && loc.longitude && !isNaN(loc.latitude) && !isNaN(loc.longitude)
+    (loc) => loc.latitude != null && loc.longitude != null && !isNaN(loc.latitude) && !isNaN(loc.longitude)
   );
   if (validLocations.length === 0) {
     return (
@@ -620,7 +638,7 @@ function MapTab({ locations }) {
     } else if (index === total - 1) {
       bg = '#ef4444'; border = '#991b1b'; label = 'Z'; size = 30;
     } else {
-      const ratio = index / (total - 1);
+      const ratio = total > 1 ? index / (total - 1) : 0;
       bg = interpolateColor(ratio); border = '#0f172a'; label = `${index + 1}`; size = 24;
     }
     return new L.DivIcon({
@@ -671,7 +689,7 @@ function MapTab({ locations }) {
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0 shadow-md"
                     style={{
-                      background: i === 0 ? '#22c55e' : i === displayStops.length - 1 ? '#ef4444' : interpolateColor(i / (displayStops.length - 1)),
+                      background: i === 0 ? '#22c55e' : i === displayStops.length - 1 ? '#ef4444' : interpolateColor(displayStops.length > 1 ? i / (displayStops.length - 1) : 0),
                     }}
                   >
                     {i === 0 ? 'A' : i === displayStops.length - 1 ? 'Z' : i + 1}
@@ -681,7 +699,7 @@ function MapTab({ locations }) {
                       {stop.tower_id || stop.tower || `Location ${i + 1}`}
                     </div>
                     <div className="text-slate-500 text-[10px] mt-0.5">
-                      {stop.arriveTime ? format(new Date(stop.arriveTime), 'MMM d, HH:mm') : '--'}
+                      {stop.arriveTime ? safeFormat(stop.arriveTime, 'MMM d, HH:mm') : '--'}
                       {stop.dwellMinutes > 0 && (
                         <span className="text-amber-400/80 ml-1.5 font-semibold">
                           {stop.dwellMinutes}m dwell
@@ -735,7 +753,7 @@ function MapTab({ locations }) {
                   )}
                   <div>
                     <span className="text-slate-400">Arrived:</span>{' '}
-                    {stop.arriveTime ? format(new Date(stop.arriveTime), 'MMM d, HH:mm:ss') : '--'}
+                    {stop.arriveTime ? safeFormat(stop.arriveTime, 'MMM d, HH:mm:ss') : '--'}
                   </div>
                   {stop.dwellMinutes > 0 && (
                     <div>
@@ -953,7 +971,9 @@ function EntityCardTab({ entity }) {
     );
   }
 
-  const riskScore = entity.risk_score ?? entity.riskScore ?? null;
+  const rawRisk = entity.risk_score ?? entity.riskScore ?? null;
+  // Normalize: API may return 0-1 float or 0-100 integer
+  const riskScore = rawRisk !== null ? (rawRisk <= 1 ? Math.round(rawRisk * 100) : Math.round(rawRisk)) : null;
   const isWatchlisted = entity.watchlist || entity.is_watchlisted;
   const initial = (entity.name || 'U')[0].toUpperCase();
 
@@ -1073,7 +1093,7 @@ function EntityCardTab({ entity }) {
             {entity.recent_activity.map((act, i) => (
               <div key={i} className="flex items-center gap-3 text-xs p-2.5 rounded-lg bg-slate-800/20 hover:bg-slate-800/40 transition-colors">
                 <span className="text-slate-500 font-mono w-20 shrink-0">
-                  {act.timestamp ? format(new Date(act.timestamp), 'MMM d HH:mm') : '--'}
+                  {act.timestamp ? safeFormat(act.timestamp, 'MMM d HH:mm') : '--'}
                 </span>
                 <span className="text-slate-300">{act.description || act.type}</span>
               </div>
@@ -1159,9 +1179,9 @@ function PatternOfLifeTab({ data, entity }) {
               <span className="text-slate-500">{(location.confidence * 100).toFixed(0)}%</span>
             </div>
           )}
-          {location.latitude && (
+          {location.latitude != null && location.longitude != null && (
             <div className="text-[10px] text-slate-600 font-mono">
-              {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+              {Number(location.latitude).toFixed(4)}, {Number(location.longitude).toFixed(4)}
             </div>
           )}
         </div>
@@ -1612,7 +1632,7 @@ export default function Copilot() {
                   </div>
                 )}
                 <div className="text-[10px] text-slate-700 mt-1.5 font-mono">
-                  {msg.timestamp ? format(new Date(msg.timestamp), 'HH:mm:ss') : ''}
+                  {msg.timestamp ? safeFormat(msg.timestamp, 'HH:mm:ss', '') : ''}
                 </div>
               </div>
 
