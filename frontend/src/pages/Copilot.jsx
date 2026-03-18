@@ -243,7 +243,8 @@ function RecordTable({ records, columns }) {
   );
 }
 
-function ToolModal({ tool, defaultMsisdn, onRun, onClose }) {
+// Tools execute directly on click - no modal needed
+function _removed() { // placeholder to maintain line structure
   const [msisdn, setMsisdn] = useState(defaultMsisdn || '');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -449,26 +450,19 @@ function ToolModal({ tool, defaultMsisdn, onRun, onClose }) {
 }
 
 function ToolsTab({ evidence, entity, onQuery }) {
-  const [activeTool, setActiveTool] = useState(null);
   const msisdn = entity?.msisdn || '';
 
   const tools = [
-    { id: 'full', label: 'Full Investigation', icon: Search, desc: 'Complete analysis with all data' },
-    { id: 'pol', label: 'Pattern of Life', icon: Clock, desc: 'Sleep/work locations, daily routine' },
-    { id: 'contacts', label: 'Contact Network', icon: Users, desc: 'Who they communicate with' },
-    { id: 'movement', label: 'Movement Trail', icon: MapPin, desc: 'Tower-by-tower location history' },
-    { id: 'anomalies', label: 'Anomaly Check', icon: AlertTriangle, desc: 'Impossible travel, bursts, SIM swaps' },
-    { id: 'night', label: 'Night Activity', icon: Eye, desc: 'Calls & messages 11PM-5AM' },
-    { id: 'identity', label: 'Identity Changes', icon: Shield, desc: 'SIM/IMEI swap detection' },
-    { id: 'top', label: 'Top Contacts', icon: Phone, desc: 'Most frequent contacts ranked' },
-    { id: 'stats', label: 'Activity Stats', icon: Activity, desc: 'Call/message counts, peak hours' },
-    { id: 'report', label: 'Generate Report', icon: FileText, desc: 'Full dossier with all sections' },
-    { id: 'search_msg', label: 'Search Messages', icon: MessageSquare, desc: 'Full-text search SMS content' },
-    { id: 'search_call', label: 'Search Calls', icon: Radio, desc: 'Search call transcripts' },
-    { id: 'tower_dump', label: 'Tower Dump', icon: Radio, desc: 'All phones at a specific tower' },
-    { id: 'colocation', label: 'Co-location', icon: MapPin, desc: 'Were two phones at same tower?' },
-    { id: 'common', label: 'Common Contacts', icon: Users, desc: 'Shared contacts between two numbers' },
-    { id: 'chain', label: 'Call Chain', icon: GitBranch, desc: 'Connection path between two numbers' },
+    { id: 'full', label: 'Full Investigation', icon: Search, desc: 'All data', query: `give all info about ${msisdn}`, needsMsisdn: true },
+    { id: 'pol', label: 'Pattern of Life', icon: Clock, desc: 'Daily routine', query: `pattern of life for ${msisdn}`, needsMsisdn: true },
+    { id: 'contacts', label: 'Contact Network', icon: Users, desc: 'Communication links', query: `show contact network for ${msisdn}`, needsMsisdn: true },
+    { id: 'movement', label: 'Movement Trail', icon: MapPin, desc: 'Location history', query: `show movement trail for ${msisdn}`, needsMsisdn: true },
+    { id: 'anomalies', label: 'Anomaly Check', icon: AlertTriangle, desc: 'Suspicious patterns', query: `check anomalies for ${msisdn}`, needsMsisdn: true },
+    { id: 'night', label: 'Night Activity', icon: Eye, desc: '11PM-5AM comms', query: `night activity for ${msisdn}`, needsMsisdn: true },
+    { id: 'identity', label: 'Identity Changes', icon: Shield, desc: 'SIM/IMEI swaps', query: `identity changes for ${msisdn}`, needsMsisdn: true },
+    { id: 'top', label: 'Top Contacts', icon: Phone, desc: 'Most frequent', query: `top contacts for ${msisdn}`, needsMsisdn: true },
+    { id: 'stats', label: 'Activity Stats', icon: Activity, desc: 'Quick summary', query: `activity stats for ${msisdn}`, needsMsisdn: true },
+    { id: 'report', label: 'Full Report', icon: FileText, desc: 'Dossier', query: `generate report for ${msisdn}`, needsMsisdn: true },
   ];
 
   return (
@@ -486,15 +480,21 @@ function ToolsTab({ evidence, entity, onQuery }) {
         </div>
       )}
 
-      {/* Tools Grid */}
+      {/* Tools Grid - click to run immediately */}
       <div className="grid grid-cols-2 gap-2">
         {tools.map((tool) => {
           const TIcon = tool.icon;
+          const disabled = tool.needsMsisdn && !msisdn;
           return (
             <button
               key={tool.id}
-              onClick={() => setActiveTool(tool)}
-              className="text-left p-3 rounded-xl border border-slate-700/30 bg-slate-800/20 hover:bg-slate-800/50 hover:border-slate-600/50 transition-all duration-200 group"
+              disabled={disabled}
+              onClick={() => !disabled && onQuery(tool.query)}
+              className={`text-left p-3 rounded-xl border transition-all duration-200 group ${
+                disabled
+                  ? 'border-slate-800/20 bg-slate-800/10 opacity-30 cursor-not-allowed'
+                  : 'border-slate-700/30 bg-slate-800/20 hover:bg-blue-500/10 hover:border-blue-500/30 cursor-pointer active:scale-[0.97]'
+              }`}
             >
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-lg bg-slate-700/30 group-hover:bg-blue-500/15 flex items-center justify-center shrink-0 transition-colors">
@@ -527,14 +527,12 @@ function ToolsTab({ evidence, entity, onQuery }) {
         </div>
       )}
 
-      {/* Tool Modal */}
-      {activeTool && (
-        <ToolModal
-          tool={activeTool}
-          defaultMsisdn={msisdn}
-          onRun={(query) => onQuery(query)}
-          onClose={() => setActiveTool(null)}
-        />
+      {!msisdn && (
+        <div className="text-center py-6 mt-2">
+          <Search size={28} className="mx-auto text-slate-700 mb-2" />
+          <p className="text-xs text-slate-500">Ask about a phone number first</p>
+          <p className="text-[10px] text-slate-600 mt-0.5">e.g. "give all info about +919656152900"</p>
+        </div>
       )}
     </div>
   );
