@@ -14,6 +14,7 @@ import MapView from './pages/MapView';
 import Analytics from './pages/Analytics';
 import AuditLog from './pages/AuditLog';
 import AdvancedAnalytics from './pages/AdvancedAnalytics';
+import OpIntelligence from './pages/OpIntelligence';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +49,7 @@ export default function App() {
               <Route path="map" element={<MapView />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="investigation" element={<AdvancedAnalytics />} />
+              <Route path="op-intel" element={<OpIntelligence />} />
               <Route
                 path="audit-log"
                 element={

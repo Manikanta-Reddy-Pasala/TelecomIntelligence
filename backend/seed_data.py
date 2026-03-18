@@ -18,6 +18,8 @@ from models.database import (
     Person, PhoneNumber, Device, SIM, Tower,
     CallRecord, Message, LocationEvent, DataSession,
     Case, CaseEntity, CaseInsight, User, AnomalyAlert, AuditLog,
+    TowerRFProfile, TAMeasurement, CaptureHistory, CellRecommendation,
+    OperationalPlaybook, PlaybookExecution,
 )
 
 def _hash(pw: str) -> str:
@@ -653,6 +655,194 @@ async def seed():
         db.add_all(anomalies)
         await db.flush()
         print(f"Created {len(anomalies)} anomaly alerts")
+
+        # --- Operational Intelligence: RF Profiles ---
+        print("Generating operational intelligence data...")
+        rf_profiles = []
+        freqs = [900, 1800, 2100, 2600]
+        envs = ["urban", "urban", "urban", "suburban", "rural"]
+        for t in towers:
+            freq = _rng.choice(freqs)
+            env = _rng.choice(envs)
+            power = _rng.uniform(38, 46)
+            height = _rng.uniform(15, 50)
+            gain = _rng.uniform(12, 18)
+            max_r = 1500 if env == "urban" else (3000 if env == "suburban" else 8000)
+            rf_profiles.append(TowerRFProfile(
+                tower_id=t.tower_id,
+                frequency_mhz=freq,
+                power_dbm=round(power, 1),
+                antenna_height_m=round(height, 1),
+                antenna_gain_dbi=round(gain, 1),
+                environment=env,
+                propagation_model="okumura_hata" if freq <= 1500 else "cost231_hata",
+                max_range_m=max_r + _rng.uniform(-200, 200),
+            ))
+        db.add_all(rf_profiles)
+        await db.flush()
+        print(f"Created {len(rf_profiles)} RF profiles")
+
+        # --- TA Measurements ---
+        ta_measurements = []
+        key_msisdns = network_group + list(coloc_pair) + [burst_msisdn, travel_msisdn]
+        for m in key_msisdns[:10]:
+            for _ in range(20):
+                t = _rng.choice(towers)
+                tech = _rng.choice(["GSM", "LTE"])
+                ta_val = _rng.randint(0, 30) if tech == "GSM" else _rng.randint(0, 200)
+                ta_measurements.append(TAMeasurement(
+                    msisdn=m,
+                    tower_id=t.tower_id,
+                    ta_value=ta_val,
+                    technology=tech,
+                    ground_truth_lat=t.latitude + _rng.uniform(-0.003, 0.003) if _rng.random() < 0.3 else None,
+                    ground_truth_lng=t.longitude + _rng.uniform(-0.003, 0.003) if _rng.random() < 0.3 else None,
+                    measured_at=_rand_datetime(start_date, now),
+                ))
+        db.add_all(ta_measurements)
+        await db.flush()
+        print(f"Created {len(ta_measurements)} TA measurements")
+
+        # --- Capture History ---
+        methods = ["tower_dump", "targeted_cdr", "realtime_intercept", "location_track", "imsi_catcher"]
+        times_of_day = ["morning", "afternoon", "evening", "night"]
+        capture_histories = []
+        for i in range(10):
+            m = _rng.choice(key_msisdns)
+            method = _rng.choice(methods)
+            used_towers = [_rng.choice(towers).tower_id for _ in range(_rng.randint(1, 4))]
+            success = _rng.random() < 0.6
+            capture_histories.append(CaptureHistory(
+                msisdn=m,
+                method=method,
+                cells_used=used_towers,
+                success=success,
+                duration_hours=round(_rng.uniform(0.5, 48), 1),
+                time_of_day=_rng.choice(times_of_day),
+                notes=f"Capture operation #{i+1}" if _rng.random() < 0.5 else None,
+                case_id=cases[i % len(cases)].id if _rng.random() < 0.5 else None,
+                analyst_id=users[0].id,
+            ))
+        db.add_all(capture_histories)
+        await db.flush()
+        print(f"Created {len(capture_histories)} capture histories")
+
+        # --- Operational Playbooks ---
+        playbooks = [
+            OperationalPlaybook(
+                name="Drug Network Dismantling",
+                target_type="drug",
+                description="Systematic approach to mapping and dismantling drug distribution networks using CDR analysis, tower monitoring, and coordinated surveillance.",
+                steps=[
+                    {"step_number": 1, "title": "Initial CDR Analysis", "description": "Pull 90-day CDR for target MSISDN. Identify top contacts and communication patterns.", "tool": "copilot", "estimated_minutes": 60, "required": True},
+                    {"step_number": 2, "title": "Network Mapping", "description": "Map all 1st and 2nd degree contacts. Identify hub nodes and communication clusters.", "tool": "investigation", "estimated_minutes": 120, "required": True},
+                    {"step_number": 3, "title": "Tower Pattern Analysis", "description": "Identify frequently used towers and movement corridors. Flag static meeting points.", "tool": "map", "estimated_minutes": 90, "required": True},
+                    {"step_number": 4, "title": "Cell Monitoring Setup", "description": "Deploy monitoring on top 5 recommended cells based on target patterns.", "tool": "op-intel", "estimated_minutes": 60, "required": True},
+                    {"step_number": 5, "title": "TA Precision Location", "description": "Use TA readings to pinpoint target location when active on monitored cells.", "tool": "op-intel", "estimated_minutes": 30, "required": False},
+                    {"step_number": 6, "title": "Coordinated Action", "description": "Synchronize field team with real-time location data for interception.", "tool": "op-intel", "estimated_minutes": 120, "required": True},
+                ],
+                estimated_hours=8,
+                success_rate=0.72,
+            ),
+            OperationalPlaybook(
+                name="Financial Fraud Investigation",
+                target_type="fraud",
+                description="Investigate financial fraud operations using call/message patterns, identifying money mule networks and command chains.",
+                steps=[
+                    {"step_number": 1, "title": "Victim Call Analysis", "description": "Analyze victim's incoming calls 48h before fraud. Identify unknown callers.", "tool": "copilot", "estimated_minutes": 45, "required": True},
+                    {"step_number": 2, "title": "Suspect Number Profiling", "description": "Profile each suspect number: registration details, activation date, usage patterns.", "tool": "entities", "estimated_minutes": 60, "required": True},
+                    {"step_number": 3, "title": "SIM History Check", "description": "Check for SIM swaps, device changes, and carrier port-outs on suspect numbers.", "tool": "analytics", "estimated_minutes": 45, "required": True},
+                    {"step_number": 4, "title": "Tower Correlation", "description": "Correlate suspect tower locations with bank branch and ATM locations.", "tool": "map", "estimated_minutes": 60, "required": True},
+                    {"step_number": 5, "title": "Money Mule Mapping", "description": "Map downstream contacts receiving forwarded calls/messages. Identify mule chain.", "tool": "investigation", "estimated_minutes": 90, "required": True},
+                ],
+                estimated_hours=5,
+                success_rate=0.68,
+            ),
+            OperationalPlaybook(
+                name="Terror Cell Detection",
+                target_type="terror",
+                description="Detect and monitor potential terror cell communications using anomaly detection, encrypted comms patterns, and geographic analysis.",
+                steps=[
+                    {"step_number": 1, "title": "Anomaly Baseline", "description": "Establish communication baseline for target. Flag deviations from normal patterns.", "tool": "analytics", "estimated_minutes": 90, "required": True},
+                    {"step_number": 2, "title": "Encrypted Comms Detection", "description": "Identify shifts to encrypted messaging (sudden SMS/voice drop with data usage spike).", "tool": "copilot", "estimated_minutes": 60, "required": True},
+                    {"step_number": 3, "title": "Burner Phone Correlation", "description": "Identify potential burner phones by activation date, usage pattern, and tower overlap.", "tool": "investigation", "estimated_minutes": 120, "required": True},
+                    {"step_number": 4, "title": "Geographic Pattern Analysis", "description": "Map movement patterns. Identify dead zones, meeting points, and border crossings.", "tool": "map", "estimated_minutes": 90, "required": True},
+                    {"step_number": 5, "title": "Silent Period Monitoring", "description": "Flag and monitor silent periods (communication blackouts) which may precede operations.", "tool": "analytics", "estimated_minutes": 60, "required": True},
+                    {"step_number": 6, "title": "Real-time Tracking", "description": "Deploy real-time TA-based tracking during active monitoring phase.", "tool": "op-intel", "estimated_minutes": 240, "required": True},
+                ],
+                estimated_hours=12,
+                success_rate=0.55,
+            ),
+            OperationalPlaybook(
+                name="Kidnapping Response",
+                target_type="kidnap",
+                description="Rapid response playbook for kidnapping cases. Focus on last known location, movement tracking, and ransom call tracing.",
+                steps=[
+                    {"step_number": 1, "title": "Last Known Location", "description": "Determine victim's last known cell tower and TA-based location.", "tool": "op-intel", "estimated_minutes": 15, "required": True},
+                    {"step_number": 2, "title": "Movement Trail", "description": "Reconstruct movement trail from location events. Identify direction of travel.", "tool": "map", "estimated_minutes": 30, "required": True},
+                    {"step_number": 3, "title": "Ransom Call Trace", "description": "If ransom call received, trace originating tower and TA location immediately.", "tool": "op-intel", "estimated_minutes": 10, "required": True},
+                    {"step_number": 4, "title": "Vehicle Corridor Analysis", "description": "Map likely road corridors based on tower handover sequence.", "tool": "map", "estimated_minutes": 30, "required": True},
+                    {"step_number": 5, "title": "Live Monitoring", "description": "Set up real-time monitoring on victim's number and all contact numbers.", "tool": "op-intel", "estimated_minutes": 15, "required": True},
+                ],
+                estimated_hours=2,
+                success_rate=0.78,
+            ),
+            OperationalPlaybook(
+                name="Organized Crime Network",
+                target_type="organized_crime",
+                description="Long-term investigation playbook for organized crime networks. Focus on hierarchy mapping, communication timing, and operational patterns.",
+                steps=[
+                    {"step_number": 1, "title": "Seed Number Analysis", "description": "Deep analysis of initial target number: 180-day CDR, all contacts, tower patterns.", "tool": "copilot", "estimated_minutes": 120, "required": True},
+                    {"step_number": 2, "title": "Hierarchy Mapping", "description": "Map org structure from call patterns: frequency, direction, timing indicate rank.", "tool": "investigation", "estimated_minutes": 180, "required": True},
+                    {"step_number": 3, "title": "Operational Window Detection", "description": "Identify when the network is most active. Late-night calls often indicate ops.", "tool": "analytics", "estimated_minutes": 60, "required": True},
+                    {"step_number": 4, "title": "Safe House Identification", "description": "Find static locations where multiple network members converge regularly.", "tool": "map", "estimated_minutes": 90, "required": True},
+                    {"step_number": 5, "title": "Cell Monitoring Deployment", "description": "Monitor towers around identified safe houses and operational corridors.", "tool": "op-intel", "estimated_minutes": 60, "required": True},
+                    {"step_number": 6, "title": "Financial Trail", "description": "Correlate communication spikes with financial transaction patterns.", "tool": "investigation", "estimated_minutes": 120, "required": True},
+                    {"step_number": 7, "title": "Takedown Planning", "description": "Use precision location and real-time tracking for coordinated takedown.", "tool": "op-intel", "estimated_minutes": 180, "required": True},
+                ],
+                estimated_hours=16,
+                success_rate=0.62,
+            ),
+        ]
+        db.add_all(playbooks)
+        await db.flush()
+        print(f"Created {len(playbooks)} operational playbooks")
+
+        # --- Playbook Executions ---
+        executions = []
+        for i in range(4):
+            pb = playbooks[i % len(playbooks)]
+            m = _rng.choice(key_msisdns)
+            steps = pb.steps or []
+            # Mark some steps as completed
+            progress = []
+            completed_steps = _rng.randint(1, len(steps))
+            for j, s in enumerate(steps):
+                st = "completed" if j < completed_steps else ("in_progress" if j == completed_steps else "pending")
+                progress.append({
+                    "step_number": s.get("step_number", j + 1),
+                    "title": s.get("title", f"Step {j + 1}"),
+                    "status": st,
+                    "notes": f"Completed by analyst" if st == "completed" else None,
+                    "result": "Done" if st == "completed" else None,
+                })
+
+            is_complete = completed_steps >= len(steps)
+            started = _rand_datetime(now - timedelta(days=30), now - timedelta(days=1))
+            executions.append(PlaybookExecution(
+                playbook_id=pb.id,
+                msisdn=m,
+                case_id=cases[i % len(cases)].id,
+                status="completed" if is_complete else "active",
+                step_progress=progress,
+                started_at=started,
+                completed_at=started + timedelta(hours=pb.estimated_hours) if is_complete else None,
+                analyst_id=users[0].id,
+                notes=f"Execution #{i+1}",
+            ))
+        db.add_all(executions)
+        await db.flush()
+        print(f"Created {len(executions)} playbook executions")
 
         await db.commit()
         print("\n--- Seed complete ---")

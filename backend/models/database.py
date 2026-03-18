@@ -328,3 +328,101 @@ class AnomalyAlert(Base):
     __table_args__ = (
         Index("idx_anomaly_msisdn_time", "msisdn", "detected_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Operational Intelligence
+# ---------------------------------------------------------------------------
+
+class TowerRFProfile(Base):
+    __tablename__ = "tower_rf_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tower_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    frequency_mhz: Mapped[float] = mapped_column(Float, nullable=False)
+    power_dbm: Mapped[float] = mapped_column(Float, default=43.0)
+    antenna_height_m: Mapped[float] = mapped_column(Float, default=30.0)
+    antenna_gain_dbi: Mapped[float] = mapped_column(Float, default=15.0)
+    environment: Mapped[str] = mapped_column(String(20), default="urban")  # urban/suburban/rural
+    propagation_model: Mapped[str] = mapped_column(String(32), default="okumura_hata")
+    max_range_m: Mapped[float] = mapped_column(Float, default=2000.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class TAMeasurement(Base):
+    __tablename__ = "ta_measurements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    msisdn: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    tower_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    ta_value: Mapped[int] = mapped_column(Integer, nullable=False)
+    technology: Mapped[str] = mapped_column(String(10), default="GSM")  # GSM/LTE
+    ground_truth_lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ground_truth_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    measured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_ta_msisdn_tower", "msisdn", "tower_id"),
+    )
+
+
+class CaptureHistory(Base):
+    __tablename__ = "capture_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    msisdn: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    method: Mapped[str] = mapped_column(String(32), nullable=False)  # tower_dump/targeted_cdr/realtime_intercept/location_track/imsi_catcher
+    cells_used: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    duration_hours: Mapped[float] = mapped_column(Float, default=0.0)
+    time_of_day: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # morning/afternoon/evening/night
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    case_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("cases.id"), nullable=True)
+    analyst_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_capture_msisdn_method", "msisdn", "method"),
+    )
+
+
+class CellRecommendation(Base):
+    __tablename__ = "cell_recommendations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    msisdn: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    tower_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    reasoning: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class OperationalPlaybook(Base):
+    __tablename__ = "operational_playbooks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # drug/fraud/terror/kidnap/organized_crime
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    steps: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    estimated_hours: Mapped[float] = mapped_column(Float, default=8.0)
+    success_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class PlaybookExecution(Base):
+    __tablename__ = "playbook_executions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    playbook_id: Mapped[int] = mapped_column(Integer, ForeignKey("operational_playbooks.id"), nullable=False, index=True)
+    msisdn: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    case_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("cases.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active")  # active/completed/aborted
+    step_progress: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    analyst_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    playbook = relationship("OperationalPlaybook", foreign_keys=[playbook_id])

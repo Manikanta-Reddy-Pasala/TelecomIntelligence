@@ -15,6 +15,7 @@ from api.analytics import router as analytics_router
 from api.copilot import router as copilot_router
 from api.audit import router as audit_router
 from api.advanced_analytics import router as advanced_router
+from api.operational_intelligence import router as ops_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ app.include_router(analytics_router)
 app.include_router(copilot_router)
 app.include_router(audit_router)
 app.include_router(advanced_router)
+app.include_router(ops_router)
 
 
 @app.get("/health")
