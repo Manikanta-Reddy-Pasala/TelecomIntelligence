@@ -1,0 +1,257 @@
+/* Leaflet CSS - must be before @tailwind directives */
+@import 'leaflet/dist/leaflet.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark theme defaults */
+body {
+  @apply bg-slate-950 text-slate-100;
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(71, 85, 105, 0.5) transparent;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.6); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Glassmorphism backgrounds */
+.glass {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.glass-card {
+  background: rgba(30, 41, 59, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa, #818cf8, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Subtle glow effects */
+.glow-blue {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.05);
+}
+
+.glow-green {
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.15), 0 0 60px rgba(34, 197, 94, 0.05);
+}
+
+.glow-amber {
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.15), 0 0 60px rgba(245, 158, 11, 0.05);
+}
+
+.glow-red {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.15), 0 0 60px rgba(239, 68, 68, 0.05);
+}
+
+/* Component utility classes */
+@layer components {
+  .card {
+    @apply bg-slate-800/60 rounded-xl shadow-xl border border-slate-700/50 backdrop-blur-sm;
+  }
+
+  .card-hover {
+    @apply bg-slate-800/60 rounded-xl shadow-xl border border-slate-700/50 backdrop-blur-sm cursor-pointer hover:bg-slate-800/80 hover:border-slate-600/70 hover:shadow-2xl transition-all duration-200;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-blue-500 text-white font-medium
+           hover:from-blue-500 hover:to-blue-400 transition-all duration-200
+           shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 rounded-lg bg-slate-700/80 text-slate-300 font-medium
+           hover:bg-slate-600/80 transition-all duration-200 border border-slate-600/50
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply px-2 py-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-all duration-200;
+  }
+
+  .btn-danger {
+    @apply px-4 py-2 rounded-lg bg-red-600/80 text-white font-medium
+           hover:bg-red-500/80 transition-all duration-200
+           shadow-lg shadow-red-500/20;
+  }
+
+  .input-field {
+    @apply w-full bg-slate-800/80 border border-slate-600/50 text-slate-100 rounded-lg px-3 py-2 text-sm
+           placeholder-slate-500
+           focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/30
+           transition-all duration-200;
+  }
+
+  .badge {
+    @apply rounded-full px-2.5 py-1 text-xs font-medium inline-flex items-center gap-1;
+  }
+
+  .badge-info {
+    @apply rounded-full px-2.5 py-1 text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20;
+  }
+
+  .badge-low {
+    @apply rounded-full px-2.5 py-1 text-xs font-medium bg-green-500/15 text-green-400 border border-green-500/20;
+  }
+
+  .badge-medium {
+    @apply rounded-full px-2.5 py-1 text-xs font-medium bg-yellow-500/15 text-yellow-400 border border-yellow-500/20;
+  }
+
+  .badge-high {
+    @apply rounded-full px-2.5 py-1 text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/20;
+  }
+
+  .badge-critical {
+    @apply rounded-full px-2.5 py-1 text-xs font-medium bg-red-500/20 text-red-300 border border-red-500/30 animate-pulse;
+  }
+
+  .tab-active {
+    @apply text-blue-400 border-b-2 border-blue-500;
+  }
+
+  .tab-inactive {
+    @apply text-slate-500 border-b-2 border-transparent hover:text-slate-300 transition-all duration-200;
+  }
+
+  /* Stat card with gradient border */
+  .stat-card {
+    @apply relative rounded-xl p-5 bg-slate-800/40 border border-slate-700/40 backdrop-blur-sm overflow-hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    @apply absolute inset-0 opacity-0 transition-opacity duration-300;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(139, 92, 246, 0.05));
+  }
+
+  .stat-card:hover::before {
+    @apply opacity-100;
+  }
+
+  /* Table styles */
+  .data-table {
+    @apply w-full text-sm;
+  }
+
+  .data-table thead tr {
+    @apply bg-slate-800/60;
+  }
+
+  .data-table th {
+    @apply text-left px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/50;
+  }
+
+  .data-table tbody tr {
+    @apply border-b border-slate-800/30 hover:bg-slate-800/40 transition-colors duration-150;
+  }
+
+  .data-table td {
+    @apply px-4 py-3;
+  }
+}
+
+/* Leaflet popup override for dark theme */
+.leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 42, 0.95) !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: blur(12px) !important;
+}
+
+.leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(51, 65, 85, 0.5) !important;
+}
+
+.leaflet-popup-close-button {
+  color: #94a3b8 !important;
+}
+
+.leaflet-popup-close-button:hover {
+  color: #e2e8f0 !important;
+}
+
+/* Loading skeleton shimmer */
+.skeleton {
+  background: linear-gradient(90deg,
+    rgba(30, 41, 59, 0.5) 25%,
+    rgba(51, 65, 85, 0.5) 50%,
+    rgba(30, 41, 59, 0.5) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}

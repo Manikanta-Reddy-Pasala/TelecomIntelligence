@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tiac_postgres
+    environment:
+      POSTGRES_DB: tiac
+      POSTGRES_USER: tiac
+      POSTGRES_PASSWORD: tiac123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tiac -d tiac"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: tiac_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  backend:
+    build: ./backend
+    container_name: tiac_backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tiac:tiac123@postgres:5432/tiac
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: tinyllama
+      SECRET_KEY: tiac-secret-key-change-in-production-2024
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: tiac_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Seed data runner (runs once then exits)
+  seed:
+    build: ./backend
+    container_name: tiac_seed
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tiac:tiac123@postgres:5432/tiac
+    command: python seed_data.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    profiles:
+      - seed
+
+volumes:
+  postgres_data:
+  ollama_data:
