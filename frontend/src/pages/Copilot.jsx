@@ -243,180 +243,97 @@ function RecordTable({ records, columns }) {
   );
 }
 
-function EvidenceTab({ evidence }) {
-  const [expandedIdx, setExpandedIdx] = useState(null);
+function ToolsTab({ evidence, entity, onQuery }) {
+  const msisdn = entity?.msisdn || '';
 
-  if (!evidence || evidence.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-600">
-        <Database size={36} className="mb-3 opacity-20" />
-        <p className="text-sm">No evidence data available</p>
-      </div>
-    );
-  }
-
-  const sourceColors = {
-    'Entity Profile': 'text-blue-400 bg-blue-500/10 border-blue-500/25',
-    'Call Detail Records': 'text-cyan-400 bg-cyan-500/10 border-cyan-500/25',
-    'Messages': 'text-green-400 bg-green-500/10 border-green-500/25',
-    'Contact Network': 'text-violet-400 bg-violet-500/10 border-violet-500/25',
-    'Anomaly Detection': 'text-red-400 bg-red-500/10 border-red-500/25',
-    'Location Trail': 'text-amber-400 bg-amber-500/10 border-amber-500/25',
-    'Pattern of Life': 'text-indigo-400 bg-indigo-500/10 border-indigo-500/25',
-    'Identity Changes (SIM/IMEI)': 'text-orange-400 bg-orange-500/10 border-orange-500/25',
-    'Night Activity': 'text-purple-400 bg-purple-500/10 border-purple-500/25',
-    'Activity Statistics': 'text-teal-400 bg-teal-500/10 border-teal-500/25',
-    'Search Results': 'text-pink-400 bg-pink-500/10 border-pink-500/25',
-    'Co-location Analysis': 'text-yellow-400 bg-yellow-500/10 border-yellow-500/25',
-  };
-
-  // Render evidence data based on source type
-  const renderContent = (item) => {
-    const d = item.data;
-    if (!d || typeof d !== 'object') {
-      return <p className="text-xs text-slate-500 p-3">{d == null ? 'No data' : String(d)}</p>;
-    }
-
-    // Entity Profile - show as key-value card
-    if (item.source === 'Entity Profile') {
-      return (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 p-3">
-          {Object.entries(d).filter(([k, v]) => v !== null && !Array.isArray(v)).map(([k, v]) => (
-            <div key={k}>
-              <span className="text-[10px] text-slate-500 uppercase">{k.replace(/_/g, ' ')}</span>
-              <div className="text-xs text-slate-200 font-medium">{typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}</div>
-            </div>
-          ))}
-          {d.phones && d.phones.length > 0 && (
-            <div className="col-span-2 mt-1">
-              <span className="text-[10px] text-slate-500 uppercase">Phones</span>
-              <div className="flex flex-wrap gap-1 mt-0.5">{d.phones.map((p, i) => (
-                <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-slate-700/50 text-slate-300 font-mono">{p.msisdn} ({p.carrier})</span>
-              ))}</div>
-            </div>
-          )}
-          {d.devices && d.devices.length > 0 && (
-            <div className="col-span-2 mt-1">
-              <span className="text-[10px] text-slate-500 uppercase">Devices</span>
-              <div className="flex flex-wrap gap-1 mt-0.5">{d.devices.map((dv, i) => (
-                <span key={i} className="text-[10px] px-2 py-0.5 rounded bg-slate-700/50 text-slate-300">{dv.model || dv.brand} ({dv.imei})</span>
-              ))}</div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // CDR / Messages - show as table
-    if (d.records) {
-      return <RecordTable records={d.records} />;
-    }
-
-    // Contacts - show as table
-    if (d.top_contacts) {
-      return <RecordTable records={d.top_contacts} columns={['msisdn', 'outgoing_calls', 'incoming_calls', 'outgoing_messages', 'incoming_messages', 'total_duration_sec']} />;
-    }
-
-    // Anomalies - show alerts as cards
-    if (d.alerts) {
-      return (
-        <div className="space-y-2 p-2">
-          <div className="flex gap-3 text-[10px] text-slate-500 mb-1">
-            <span>Stored: {d.stored_alerts || 0}</span>
-            <span>Realtime: {d.realtime_impossible_travel || 0}</span>
-          </div>
-          {d.alerts.map((a, i) => (
-            <div key={i} className={`p-2.5 rounded-lg border ${a.severity === 'critical' ? 'border-red-500/30 bg-red-500/5' : a.severity === 'high' ? 'border-orange-500/30 bg-orange-500/5' : 'border-slate-700/30 bg-slate-800/30'}`}>
-              <div className="flex items-center gap-2">
-                <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${a.severity === 'critical' ? 'bg-red-500/20 text-red-400' : a.severity === 'high' ? 'bg-orange-500/20 text-orange-400' : 'bg-slate-600/20 text-slate-400'}`}>{a.severity}</span>
-                <span className="text-[10px] text-slate-400 font-medium">{(a.type || a.anomaly || '').replace(/_/g, ' ')}</span>
-              </div>
-              <p className="text-[11px] text-slate-300 mt-1">{a.description}</p>
-            </div>
-          ))}
-        </div>
-      );
-    }
-
-    // Search Results
-    if (d.messages || d.calls) {
-      return (
-        <div className="p-2 space-y-2">
-          {d.messages && d.messages.length > 0 && (
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase mb-1">Messages ({d.total_messages})</div>
-              <RecordTable records={d.messages} columns={['sender', 'receiver', 'timestamp', 'content', 'type']} />
-            </div>
-          )}
-          {d.calls && d.calls.length > 0 && (
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase mb-1">Call Transcripts ({d.total_calls})</div>
-              <RecordTable records={d.calls} columns={['caller', 'callee', 'timestamp', 'duration', 'transcript']} />
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    // Default: key-value for simple objects, or JSON for complex
-    const simpleKeys = Object.entries(d).filter(([k, v]) => typeof v !== 'object' || v === null);
-    const complexKeys = Object.entries(d).filter(([k, v]) => typeof v === 'object' && v !== null);
-    return (
-      <div className="p-3">
-        {simpleKeys.length > 0 && (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 mb-2">
-            {simpleKeys.map(([k, v]) => (
-              <div key={k}>
-                <span className="text-[10px] text-slate-500">{k.replace(/_/g, ' ')}</span>
-                <span className="text-xs text-slate-300 ml-2">{String(v ?? '--')}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {complexKeys.length > 0 && (
-          <pre className="text-[10px] text-slate-400 font-mono overflow-auto max-h-40 mt-1 p-2 bg-slate-900/50 rounded-lg">
-            {JSON.stringify(Object.fromEntries(complexKeys), null, 2)}
-          </pre>
-        )}
-      </div>
-    );
-  };
+  const tools = [
+    { label: 'Full Investigation', icon: Search, query: `give all info about ${msisdn}`, color: 'blue', desc: 'Complete analysis with all data' },
+    { label: 'Pattern of Life', icon: Clock, query: `pattern of life for ${msisdn}`, color: 'indigo', desc: 'Sleep/work locations, daily routine' },
+    { label: 'Contact Network', icon: Users, query: `show contact network for ${msisdn}`, color: 'violet', desc: 'Who they communicate with' },
+    { label: 'Movement Trail', icon: MapPin, query: `show movement trail for ${msisdn}`, color: 'green', desc: 'Tower-by-tower location history' },
+    { label: 'Anomaly Check', icon: AlertTriangle, query: `check anomalies for ${msisdn}`, color: 'red', desc: 'Impossible travel, bursts, SIM swaps' },
+    { label: 'Night Activity', icon: Eye, query: `night activity for ${msisdn}`, color: 'purple', desc: 'Calls & messages 11PM-5AM' },
+    { label: 'Identity Changes', icon: Shield, query: `identity changes for ${msisdn}`, color: 'orange', desc: 'SIM/IMEI swap detection' },
+    { label: 'Top Contacts', icon: Phone, query: `top contacts for ${msisdn}`, color: 'cyan', desc: 'Most frequent contacts ranked' },
+    { label: 'Activity Stats', icon: Activity, query: `activity stats for ${msisdn}`, color: 'teal', desc: 'Call/message counts, peak hours' },
+    { label: 'Generate Report', icon: FileText, query: `generate report for ${msisdn}`, color: 'amber', desc: 'Full dossier with all sections' },
+    { label: 'Search Messages', icon: MessageSquare, query: `search messages containing `, color: 'pink', desc: 'Full-text search across SMS & calls', noMsisdn: true },
+    { label: 'Search Calls', icon: Radio, query: `search calls mentioning `, color: 'rose', desc: 'Search call transcripts', noMsisdn: true },
+  ];
 
   return (
-    <div className="overflow-auto max-h-[calc(100vh-260px)] space-y-3 pr-1">
-      {evidence.map((item, i) => {
-        const colorCls = sourceColors[item.source] || 'text-slate-400 bg-slate-500/10 border-slate-500/25';
-        const isExpanded = expandedIdx === i;
-
-        // Count items
-        const d = item.data;
-        const countLabel = d.total || d.total_contacts || d.total_anomalies || d.total_points || d.total_messages || d.total_calls || '';
-
-        return (
-          <div key={i} className="rounded-xl border border-slate-700/40 bg-slate-800/30 backdrop-blur-sm overflow-hidden animate-fade-in">
+    <div className="overflow-auto max-h-[calc(100vh-260px)] p-1">
+      {/* Tools Grid */}
+      <div className="grid grid-cols-2 gap-2.5 mb-4">
+        {tools.map(({ label, icon: TIcon, query, color, desc, noMsisdn }) => {
+          const disabled = !noMsisdn && !msisdn;
+          return (
             <button
-              onClick={() => setExpandedIdx(isExpanded ? null : i)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-800/50 transition-colors group"
+              key={label}
+              onClick={() => {
+                if (!disabled) {
+                  onQuery(query);
+                }
+              }}
+              disabled={disabled}
+              className={`text-left p-3.5 rounded-xl border transition-all duration-200 group ${
+                disabled
+                  ? 'border-slate-800/30 bg-slate-800/10 opacity-40 cursor-not-allowed'
+                  : `border-${color}-500/20 bg-${color}-500/5 hover:bg-${color}-500/10 hover:border-${color}-500/30 cursor-pointer`
+              }`}
             >
-              <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${colorCls}`}>
-                  {item.source}
-                </span>
-                {countLabel && <span className="text-xs text-slate-500">{countLabel} items</span>}
+              <div className="flex items-center gap-2.5">
+                <div className={`w-8 h-8 rounded-lg bg-${color}-500/15 flex items-center justify-center shrink-0`}>
+                  <TIcon size={15} className={`text-${color}-400`} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-slate-200 group-hover:text-white transition-colors">{label}</div>
+                  <div className="text-[10px] text-slate-500 truncate">{desc}</div>
+                </div>
               </div>
-              <ChevronDown
-                  size={14}
-                  className={`text-slate-500 transition-transform duration-200 group-hover:text-slate-400 ${isExpanded ? 'rotate-180' : ''}`}
-                />
             </button>
-            {isExpanded && (
-              <div className="border-t border-slate-700/30 bg-slate-900/30">
-                {renderContent(item)}
+          );
+        })}
+      </div>
+
+      {/* Current MSISDN indicator */}
+      {msisdn && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20">
+          <div className="text-[10px] text-blue-400/70 uppercase tracking-wider font-semibold">Active Target</div>
+          <div className="text-sm font-mono text-blue-300 mt-0.5">{msisdn}</div>
+          {entity?.name && <div className="text-xs text-slate-400">{entity.name} | {entity.carrier || '--'}</div>}
+        </div>
+      )}
+
+      {/* Evidence summary cards */}
+      {evidence && evidence.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">Data Retrieved</div>
+          {evidence.map((item, i) => {
+            const d = item.data || {};
+            const count = d.total || d.total_contacts || d.total_anomalies || d.total_messages || d.total_calls || d.total_points || '';
+            return (
+              <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-800/30 border border-slate-700/20">
+                <span className="text-[11px] text-slate-300">{item.source}</span>
+                <div className="flex items-center gap-2">
+                  {count && <span className="text-[10px] text-slate-500">{count} items</span>}
+                  <div className="w-12 h-1 bg-slate-700/50 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.round(item.relevance * 100)}%` }} />
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      )}
+
+      {!msisdn && !evidence?.length && (
+        <div className="text-center py-8">
+          <Search size={32} className="mx-auto text-slate-700 mb-3" />
+          <p className="text-sm text-slate-500">Ask a question to activate investigation tools</p>
+          <p className="text-[11px] text-slate-600 mt-1">Tools will auto-populate with the detected MSISDN</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1318,7 +1235,7 @@ export default function Copilot() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('evidence');
+  const [activeTab, setActiveTab] = useState('tools');
   const [selectedCaseId, setSelectedCaseId] = useState(null);
   const [activeEvidence, setActiveEvidence] = useState(null);
   const [copiedIdx, setCopiedIdx] = useState(null);
@@ -1373,7 +1290,7 @@ export default function Copilot() {
       else if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('contacts');
       else if (aiMsg.locations && aiMsg.locations.length > 0) setActiveTab('map');
       else if (aiMsg.timeline && aiMsg.timeline.length > 0) setActiveTab('timeline');
-      else if (aiMsg.evidence && aiMsg.evidence.length > 0) setActiveTab('evidence');
+      else if (aiMsg.evidence && aiMsg.evidence.length > 0) setActiveTab('tools');
       else if (aiMsg.entity) setActiveTab('entity');
     } catch (err) {
       const errMsg = {
@@ -1416,7 +1333,7 @@ export default function Copilot() {
   };
 
   const tabs = [
-    { key: 'evidence', label: 'Evidence', icon: FileText },
+    { key: 'tools', label: 'Tools', icon: Search },
     { key: 'timeline', label: 'Timeline', icon: Clock },
     { key: 'map', label: 'Map', icon: MapPin },
     { key: 'contacts', label: 'Contacts', icon: Users },
@@ -1438,7 +1355,7 @@ export default function Copilot() {
   const evidenceCounts = useMemo(() => {
     if (!activeEvidence) return {};
     return {
-      evidence: activeEvidence.evidence?.length || 0,
+      tools: activeEvidence.evidence?.length || 0,
       timeline: activeEvidence.timeline?.length || 0,
       map: activeEvidence.locations?.length || 0,
       graph: activeEvidence.graph?.nodes?.length || 0,
@@ -1552,7 +1469,7 @@ export default function Copilot() {
                       <button
                         onClick={() => {
                           setActiveEvidence(msg);
-                          setActiveTab('evidence');
+                          setActiveTab('tools');
                         }}
                         className="mt-3 text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/8 border border-blue-500/15 hover:bg-blue-500/15 transition-all"
                       >
@@ -1685,7 +1602,7 @@ export default function Copilot() {
             </div>
           ) : (
             <>
-              {activeTab === 'evidence' && <EvidenceTab evidence={activeEvidence.evidence} />}
+              {activeTab === 'tools' && <ToolsTab evidence={activeEvidence.evidence} entity={activeEvidence.entity} onQuery={(q) => { setInput(q); setTimeout(() => inputRef.current?.focus(), 50); }} />}
               {activeTab === 'timeline' && <TimelineTab events={activeEvidence.timeline} />}
               {activeTab === 'map' && <MapTab locations={activeEvidence.locations} />}
               {activeTab === 'contacts' && <ContactsTab graphData={activeEvidence.graph} />}
