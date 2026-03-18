@@ -37,12 +37,12 @@ case "${1:-start}" in
     echo "Waiting for PostgreSQL..."
     sleep 10
 
-    # Pull base model and create custom TIAC model
-    echo "Pulling tinyllama base model..."
-    ssh $REMOTE_HOST "docker exec tiac_ollama ollama pull tinyllama"
+    # Build custom TIAC analyst model (pulls phi3:mini as base automatically)
     echo "Building custom TIAC analyst model..."
     ssh $REMOTE_HOST "docker cp $REMOTE_DIR/backend/ollama/Modelfile tiac_ollama:/tmp/Modelfile"
     ssh $REMOTE_HOST "docker exec tiac_ollama ollama create tiac-analyst -f /tmp/Modelfile"
+    # Clean up base model (only tiac-analyst needed at runtime)
+    ssh $REMOTE_HOST "docker exec tiac_ollama ollama rm phi3:mini 2>/dev/null || true"
 
     # Run seed data
     echo "Seeding database..."

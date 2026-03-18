@@ -28,14 +28,15 @@ TIAC is a tool built for telecom intelligence analysts who need to investigate p
 
 ### Key Capabilities
 
-- **Ask Questions Naturally**: "Give all info about +919656152900" instantly returns the person's profile, call history, movement trail, contact network, and anomaly alerts
+- **Ask Questions Naturally**: "Give all info about +919656152900" instantly returns the person's profile, call history, movement trail, contacts, and anomaly alerts
 - **Movement Tracking**: See where a phone traveled on a map - from tower to tower, with timestamps and dwell times at each location
-- **Contact Network Visualization**: Interactive graph showing who a target communicates with and how those contacts connect to each other
+- **Contact Conversations**: View all conversations with each contact -- messages and call transcripts in an expandable conversation view
 - **Anomaly Detection**: Automatically flags suspicious behavior - impossible travel (appearing at distant locations within minutes), sudden contact bursts, SIM swaps, unusual call times
-- **Advanced Investigation Tools**: 10 specialized analytical tools including tower dumps, geofencing, pattern of life analysis, call chain tracing, and comprehensive report generation
-- **Timeline View**: Chronological view of all calls, messages, and location events for any phone number
+- **16 Investigation Tools**: 10 one-click tools on the Tools panel plus 6 additional tools accessible via chat (search messages, search calls, tower dump, co-location, common contacts, call chain)
+- **Timeline View**: Chronological view of all calls, messages, and location events grouped by date with sticky headers and type filters
 - **Case Management**: Create investigation cases, link entities (phones, persons, devices), and save insights as you investigate
 - **Date Range Filtering**: Focus your investigation on a specific time period
+- **Full-Text Search**: Search across both message content and call transcripts simultaneously
 - **Full Audit Trail**: Every query, every data access is logged for compliance
 
 ### Who Is It For
@@ -64,11 +65,13 @@ TIAC is a tool built for telecom intelligence analysts who need to investigate p
 
 ### Communication Analysis
 - Call detail record browsing with multi-dimensional filters
+- Call transcripts on CDR records (25 realistic conversation templates)
 - SMS/MMS message records with content previews
-- Contact network graph with inter-contact edge discovery
+- Contact conversations view with expandable message and transcript history
 - Common contacts between two MSISDNs
 - Shortest-path (BFS) between any two numbers
 - Top contacts ranked by interaction volume with 7x24 heatmap
+- Full-text search across message content and call transcripts
 
 ### Location Intelligence
 - Tower inventory with geo-coordinate filtering
@@ -80,10 +83,17 @@ TIAC is a tool built for telecom intelligence analysts who need to investigate p
 - Geofence analysis (bounding box area surveillance)
 - Tower dump analysis (all devices on a specific tower)
 
-### Investigation Tools (10 specialized analytics)
+### Investigation Tools (16 total)
+
+**One-click tools panel (10):**
 - Tower Dump, Geofence, Pattern of Life, IMEI/SIM Change Detection
 - Common Number Analysis, Call Chain, Night Activity, Top Contacts with Heatmap
 - Comprehensive Report Generation, Activity Summary Stats
+
+**Chat-accessible tools (6):**
+- Search Messages, Search Calls, Tower Dump, Co-location, Common Contacts, Call Chain
+
+All tools execute directly on click -- no modals or popups.
 
 ### Anomaly Detection
 - Impossible travel detection (Haversine distance / time, >300 km/h threshold)
@@ -115,8 +125,8 @@ TIAC is a tool built for telecom intelligence analysts who need to investigate p
 | **Frontend** | React 18, Vite, Tailwind CSS | Modern SPA with dark theme |
 | **Backend** | Python 3.12, FastAPI, SQLAlchemy (async) | REST API with async PostgreSQL |
 | **Database** | PostgreSQL 16 | Relational storage for all entities and events |
-| **AI/LLM** | Ollama (phi3:mini or tinyllama) | Natural language response generation |
-| **Visualization** | Leaflet (maps), react-force-graph-2d (networks), Recharts (charts) | Interactive data visualization |
+| **AI/LLM** | Ollama (`tiac-analyst`, built from phi3:mini) | Natural language response generation |
+| **Visualization** | Leaflet (maps), Recharts (charts) | Interactive data visualization |
 | **Deployment** | Docker Compose (4 containers) | Single-command deployment |
 
 ### System Architecture
@@ -142,15 +152,23 @@ TIAC is a tool built for telecom intelligence analysts who need to investigate p
      +--------v---+  +------v------+  +----v--------+
      | PostgreSQL  |  |   Ollama    |  |   Audit     |
      | (Port 5432) |  | (Port 11434)|  |   Logger    |
-     +-------------+  +-------------+  +-------------+
+     +-------------+  +------+------+  +-------------+
+                             |
+                      +------v------+
+                      | tiac-analyst|
+                      | (phi3:mini  |
+                      |  base)      |
+                      +-------------+
 ```
+
+Only one Ollama model is used: `tiac-analyst`. It is built from the `phi3:mini` base model using a Modelfile with a custom system prompt and few-shot examples. The base `phi3:mini` model is removed after building to save disk space.
 
 ### Data Model
 
 ```
 persons --- phone_numbers --- sims
    |              |
-   +-- devices    +-- call_records (CDR)
+   +-- devices    +-- call_records (CDR, with transcript field)
                   +-- messages (SMS/MMS)
                   +-- location_events (tower pings)
                   +-- data_sessions
@@ -170,9 +188,9 @@ users --- audit_logs
 | Devices | Phones/tablets with IMEIs | 60 |
 | SIMs | SIM cards with IMSI/ICCID | 100 |
 | Towers | Cell towers with geo-coordinates (Mumbai) | 194 |
-| Call Records | CDR data (caller, callee, duration, tower) | 25,000+ |
+| Call Records | CDR data with transcripts (caller, callee, duration, tower, transcript) | 25,000+ |
 | Messages | SMS/MMS with content previews | 12,000+ |
-| Location Events | Tower pings with signal strength | 31,500+ |
+| Location Events | Tower pings with signal strength | 31,000+ |
 | Data Sessions | Mobile data usage records | 8,000 |
 | Anomaly Alerts | Detected suspicious patterns | 10 |
 | Cases | Investigation cases | 5 |
@@ -181,7 +199,9 @@ users --- audit_logs
 
 ## Investigation Tools
 
-TIAC provides 10 specialized investigation tools accessible via the **Advanced Analytics** page. Each tool runs a purpose-built SQL pipeline against the CDR/location data.
+TIAC provides 16 investigation tools in total. 10 are available as one-click tools on the **Tools** tab (click a tool and it runs immediately -- no modals or popups). An additional 6 tools are accessible via the chat interface.
+
+### One-Click Tools Panel (10)
 
 ### 1. Tower Dump Analysis
 
@@ -286,6 +306,19 @@ Quick-reference statistics for an MSISDN over a configurable period.
 - **Algorithm**: Runs individual count queries for outgoing/incoming calls and messages. Counts unique contacts using CASE expression. Counts active days (distinct dates with any activity). Computes average daily calls. Finds most active hour and most active day of week.
 - **Output**: `{msisdn, period_days, outgoing_calls, incoming_calls, total_calls, outgoing_messages, incoming_messages, total_messages, unique_contacts, active_days, avg_daily_calls, most_active_hour, most_active_hour_label, most_active_day}`
 
+### Chat-Accessible Tools (6)
+
+These tools are invoked by typing natural language queries into the copilot chat:
+
+| Tool | Example Query |
+|------|--------------|
+| **Search Messages** | "Search messages for keyword bomb" |
+| **Search Calls** | "Search calls to +919656152900" |
+| **Tower Dump** | "Tower dump for MUM-COL-000-01" |
+| **Co-location** | "Co-location check +919620332086 and +919866162966" |
+| **Common Contacts** | "Find common contacts between +919656152900 and +919590122159" |
+| **Call Chain** | "Call chain from +919656152900 to +919845122940" |
+
 ---
 
 ## AI Copilot - Deep Dive
@@ -318,12 +351,12 @@ The copilot is the core intelligence layer. It processes natural language querie
        v
   +--------------------+
   | 4. LLM Summary     |  Ollama generate API with structured prompt (~3s)
-  |    (Ollama)        |  10s timeout, structured fallback on failure
+  |  (tiac-analyst)    |  10s timeout, structured fallback on failure
   +--------------------+
        |
        v
   +--------------------+
-  | 5. Response Build  |  Populates all 5 frontend tabs in one response
+  | 5. Response Build  |  Populates all frontend tabs in one response
   |    (assembly)      |  + follow-up suggestions
   +--------------------+
 ```
@@ -343,7 +376,7 @@ The query is classified into one of 6 intents using keyword matching (case-insen
 | Intent | Trigger Keywords | What Gets Fetched |
 |--------|-----------------|-------------------|
 | `comprehensive` | "all info", "everything", "full", "details", "summary", "investigate" | All data categories |
-| `relationship` | "contact", "network", "called", "communicated", "common", "who called" | Entity + Contact network + Graph |
+| `relationship` | "contact", "network", "called", "communicated", "common", "who called" | Entity + Contacts |
 | `location` | "location", "tower", "movement", "trail", "where", "traveled" | Entity + Location trail + Map |
 | `timeline` | "timeline", "history", "chronolog", "when", "activity", "events" | Entity + CDR + Messages + Timeline |
 | `content` | "message", "sms", "text", "content", "conversation" | Entity + Messages |
@@ -356,10 +389,10 @@ If no keywords match, defaults to `comprehensive`.
 Based on the classified intent, the system fetches data in parallel from PostgreSQL:
 
 - **Entity Profile**: Person name, carrier, status, nationality, risk score, watchlist flag, linked phones, linked devices, total call/message counts
-- **Call Records**: Last 50 CDRs (with optional date range filter), transformed into timeline entries with direction, other party, duration
+- **Call Records**: Last 50 CDRs with transcripts (with optional date range filter), transformed into timeline entries with direction, other party, duration
 - **Messages**: Last 30 SMS/MMS records, added to timeline
 - **Location Trail**: All location events via `GeoAnalyticsService.get_movement_trail()`, capped at 200 points for the map
-- **Contact Network**: Via `GraphAnalyticsService.get_contact_network()`, top 20 contacts. For the top 5 contacts, cross-checks their contacts to find inter-contact edges (who among the target's contacts also talk to each other). Only edges with >5 interactions are included.
+- **Contact Network**: Via `GraphAnalyticsService.get_contact_network()`, top 20 contacts with interaction counts
 - **Anomalies**: Stored anomaly alerts from DB + real-time impossible travel detection via `AnomalyDetectionService.detect_impossible_travel()`
 - **Co-location**: If two MSISDNs are provided, checks for co-location events within a 30-minute window
 
@@ -373,7 +406,7 @@ Facts: {summary of all findings, joined by periods}
 Response:
 ```
 
-This prompt is sent to Ollama's `/api/generate` endpoint with a 10-second timeout. If the LLM:
+This prompt is sent to Ollama's `/api/generate` endpoint (model: `tiac-analyst`) with a 10-second timeout. If the LLM:
 - Returns a valid response (>30 chars, no "unavailable" text): used as-is
 - Times out after 10 seconds: falls back to structured bullet-point summary
 - Fails for any other reason: falls back to structured summary
@@ -399,10 +432,7 @@ The copilot returns a single JSON response that populates all frontend tabs:
   "query_plan": {"intent": "comprehensive", "parameters": {"msisdn": "..."}, "description": "..."},
   "timeline": [{"type": "call|sms", "timestamp": "...", ...}],
   "locations": [{"latitude": ..., "longitude": ..., "timestamp": "...", ...}],
-  "graph": {
-    "nodes": [{"id": "...", "msisdn": "...", "is_target": true|false, "weight": N}],
-    "edges": [{"source": "...", "target": "...", "weight": N, "is_inter": true|false}]
-  },
+  "contacts": [{"msisdn": "...", "name": "...", "call_count": N, "message_count": N, "messages": [...], "transcripts": [...]}],
   "entity": {"name": "...", "carrier": "...", "risk_score": 0.85, ...},
   "suggestions": ["Show contact network for ...", "Check anomalies for ...", ...]
 }
@@ -412,11 +442,12 @@ The copilot returns a single JSON response that populates all frontend tabs:
 
 | Tab | Data Source | Visualization |
 |-----|-----------|---------------|
-| **Evidence** | `evidence[]` array | Expandable JSON sections (Entity Profile, CDR, Messages, Contacts, Anomalies, Locations) |
-| **Timeline** | `timeline[]` array | Scatter chart showing calls, SMS, location events chronologically |
+| **Pattern of Life** | Pattern of life API | Sleep/work/weekend locations, hourly/weekly histograms, routine score |
+| **Tools** | One-click tool execution | 10 investigation tools that execute directly on click |
+| **Timeline** | `timeline[]` array | Events grouped by date with sticky headers, type filters (calls, SMS, locations), proper date formatting |
 | **Map** | `locations[]` array | Leaflet map with numbered movement stops (A -> 1 -> 2 -> ... -> Z), dwell times, gradient trail, journey log sidebar |
-| **Graph** | `graph.nodes[]` + `graph.edges[]` | Force-directed network graph with color-coded nodes (by interaction intensity), inter-contact edges, glow effects, click-to-zoom |
-| **Entity Card** | `entity` object | Person profile with linked phones, devices, risk score, metadata |
+| **Contacts** | `contacts[]` array | Expandable conversations per contact showing messages and call transcripts |
+| **[Target Name]** | `entity` object | Person profile with linked phones, devices, risk score, metadata (tab shows the target's actual name, e.g., "Rohit Singh") |
 
 ### Anomaly Detection Algorithms
 
@@ -432,7 +463,7 @@ The copilot returns a single JSON response that populates all frontend tabs:
 
 ## LLM Training Guide
 
-TIAC uses a custom Ollama model (`tiac-analyst`) fine-tuned for concise telecom intelligence analysis. There are two approaches: Modelfile-based (few-shot, no GPU required) and Unsloth QLoRA (true fine-tuning, requires GPU).
+TIAC uses a single custom Ollama model (`tiac-analyst`) fine-tuned for concise telecom intelligence analysis. There are two approaches: Modelfile-based (few-shot, no GPU required) and Unsloth QLoRA (true fine-tuning, requires GPU).
 
 ### Approach 1: Ollama Modelfile (Few-Shot, CPU)
 
@@ -446,7 +477,7 @@ The production model is built from `phi3:mini` with a comprehensive system promp
 FROM phi3:mini
 ```
 
-The `phi3:mini` model (3.8B parameters) provides the best balance of response quality, speed, and memory footprint. Previous versions used `tinyllama` (1.1B) which was faster but produced lower-quality analytical summaries.
+The `phi3:mini` model (3.8B parameters) provides the best balance of response quality, speed, and memory footprint. After building the `tiac-analyst` model, the base `phi3:mini` is removed to save disk space -- only `tiac-analyst` remains in the Ollama model store.
 
 #### System Prompt Engineering
 
@@ -502,6 +533,9 @@ cd backend/ollama
 
 # Or manually:
 ollama create tiac-analyst -f Modelfile
+
+# Remove the base model to save space (tiac-analyst is self-contained)
+ollama rm phi3:mini
 ```
 
 The `train.sh` script auto-detects whether Ollama is running locally or in a Docker container (`tiac_ollama`) and builds accordingly.
@@ -569,7 +603,7 @@ ollama create tiac-analyst-ft -f Modelfile.finetuned
 
 **File**: `backend/ollama/training/dataset.jsonl`
 
-The dataset is in JSONL (JSON Lines) format with 13 training examples. Each line is a JSON object:
+The dataset is in JSONL (JSON Lines) format with 21 training examples. Each line is a JSON object:
 
 ```json
 {
@@ -596,7 +630,7 @@ The prompt always follows the format `Query: ...\nFacts: ...\n`. The response al
 | 10 | Tower camping anomaly | HIGH |
 | 11 | Encrypted communications shift | HIGH |
 | 12 | Organized network summary | CRITICAL |
-| 13 | (Additional scenario) | Varies |
+| 13-21 | Additional scenarios (night activity, pattern of life, call chain, etc.) | Varies |
 
 #### Adding New Training Examples
 
@@ -620,11 +654,13 @@ The prompt always follows the format `Query: ...\nFacts: ...\n`. The response al
 | Risk assessment | Sometimes omits or misclassifies | Accurate severity classification |
 | Hallucination rate | Higher (invents details not in Facts) | Lower (stays grounded in provided Facts) |
 
-**Recommendation**: Use `phi3:mini` for production. Use `tinyllama` only for resource-constrained environments where speed matters more than quality.
+**Recommendation**: Use `phi3:mini` (via `tiac-analyst`) for production. Use `tinyllama` only for resource-constrained environments where speed matters more than quality.
 
 ---
 
 ## Complete API Reference
+
+TIAC exposes 50+ API endpoints across 8 categories.
 
 ### Authentication
 
@@ -647,7 +683,7 @@ The prompt always follows the format `Query: ...\nFacts: ...\n`. The response al
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
 | `GET` | `/api/analytics/dashboard-stats` | Dashboard overview: persons, active cases, calls today, alerts, phones, towers | Yes |
-| `GET` | `/api/analytics/contacts/{msisdn}` | Contact network with graph data (nodes + edges) | Yes |
+| `GET` | `/api/analytics/contacts/{msisdn}` | Contact network with interaction counts | Yes |
 | `GET` | `/api/analytics/common-contacts?msisdn1=...&msisdn2=...` | Shared contacts between two numbers | Yes |
 | `GET` | `/api/analytics/shortest-path?source=...&target=...&max_hops=4` | BFS shortest path between MSISDNs | Yes |
 | `GET` | `/api/analytics/colocation?msisdn1=...&msisdn2=...&window_minutes=30` | Co-location detection | Yes |
@@ -732,24 +768,27 @@ Most list endpoints support date range filtering:
 | Page | Route | Description |
 |------|-------|-------------|
 | **Dashboard** | `/` | Stats overview, quick search, recent activity, quick actions |
-| **Copilot** | `/copilot` | Split-panel: AI chat (40%) + evidence viewer (60%) with 5 tabs |
+| **Copilot** | `/copilot` | Split-panel: AI chat (left) + investigation tabs (right) with 6 tabs |
 | **Entities** | `/entities` | Person directory with expandable rows showing phones, devices, SIMs |
 | **Entity Detail** | `/entities/:id` | Full person profile with linked phones, devices, CDR table |
 | **Cases** | `/cases` | Case cards with status/priority filters, create modal |
 | **Case Detail** | `/cases/:id` | Entities tab, notebook tab (insights), timeline tab |
 | **Map** | `/map` | Full-screen Leaflet map with tower markers, movement trails |
-| **Analytics** | `/analytics` | 4-tab: Contact Network graph, Common Contacts, Co-location, Anomalies |
+| **Analytics** | `/analytics` | Contact analysis, Common Contacts, Co-location, Anomalies |
 | **Advanced Analytics** | `/advanced` | 10-tab investigation tools: Tower Dump, Geofence, Pattern of Life, Identity Changes, Common Numbers, Call Chain, Night Activity, Top Contacts, Report, Stats |
 | **Audit Log** | `/audit` | Admin-only log viewer with filters (user, action, date range) |
 | **Login** | `/login` | Authentication page |
 
-### Copilot Evidence Tabs
+### Copilot Investigation Tabs
 
-1. **Evidence** - Expandable JSON sections showing raw data (entity profile, CDR records, messages, contacts, anomalies, locations)
-2. **Timeline** - Scatter chart showing calls, SMS, location events chronologically
-3. **Map** - Movement flow visualization with numbered stops (A -> 1 -> 2 -> ... -> Z), dwell times, gradient trail, and journey log sidebar
-4. **Graph** - Force-directed network graph with color-coded nodes (by interaction intensity), inter-contact edges, glow effects, click-to-zoom
-5. **Entity Card** - Person profile with linked phones, devices, metadata
+The copilot right panel has 6 tabs in this order:
+
+1. **Pattern of Life** - Behavioral profile: sleep/work/weekend locations, hourly and weekly activity histograms, regular routes, routine score
+2. **Tools** - 10 one-click investigation tools that execute directly (no modals/popups) -- tower dump, geofence, pattern of life, identity changes, common numbers, call chain, night activity, top contacts, report, stats
+3. **Timeline** - Chronological events grouped by date with sticky date headers, type filters (calls, SMS, locations), and proper date formatting
+4. **Map** - Movement flow visualization with numbered stops (A -> 1 -> 2 -> ... -> Z), dwell times, gradient trail, and journey log sidebar
+5. **Contacts** - Expandable conversations per contact showing messages and call transcripts in a conversation view
+6. **[Target Name]** - Person profile with linked phones, devices, risk score, metadata (tab label shows the target's actual name, e.g., "Rohit Singh", not a generic "Entity" label)
 
 ---
 
@@ -766,7 +805,7 @@ Most list endpoints support date range filtering:
 git clone https://github.com/Manikanta-Reddy-Pasala/TelecomIntelligence.git
 cd TelecomIntelligence
 
-# Deploy (builds, starts, seeds database, pulls LLM model)
+# Deploy (builds, starts, seeds database, builds LLM model)
 ./deploy.sh setup
 ```
 
@@ -787,8 +826,7 @@ cd frontend
 npm install
 npm run dev                      # http://localhost:5173
 
-# Pull LLM model and build custom model
-docker exec tiac_ollama ollama pull phi3:mini
+# Build custom LLM model (pulls phi3:mini, builds tiac-analyst, removes base)
 cd backend/ollama && ./train.sh
 ```
 
@@ -857,7 +895,7 @@ Co-location check +919620332086 and +919866162966
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql+asyncpg://tiac:tiac123@localhost:5432/tiac` | PostgreSQL connection string |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama API base URL |
-| `OLLAMA_MODEL` | `tinyllama` | Ollama model name (set to `tiac-analyst` for custom model) |
+| `OLLAMA_MODEL` | `tiac-analyst` | Ollama model name (custom model built from phi3:mini) |
 | `SECRET_KEY` | (hardcoded default) | JWT signing key |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173,http://localhost:5174` | Allowed CORS origins |
 
@@ -892,7 +930,6 @@ Co-location check +919620332086 and +919866162966
 - React Router 6 - client-side routing
 - Tailwind CSS 3.4 - utility-first styling
 - Leaflet + react-leaflet - interactive maps
-- react-force-graph-2d - network visualization
 - Recharts - charts and timelines
 - Lucide React - icon system
 - date-fns - date formatting
@@ -928,11 +965,11 @@ TelecomCopilot/
       Modelfile            # Custom model definition (phi3:mini base)
       train.sh             # Model build script
       training/
-        dataset.jsonl      # 13 training examples
+        dataset.jsonl      # 21 training examples
         finetune.py        # Unsloth QLoRA fine-tuning script
     config.py              # Environment configuration
     main.py                # FastAPI app entry point
-    seed_data.py           # Database seeder
+    seed_data.py           # Database seeder (25k calls, 12k messages, 31k locations, 8k data sessions)
     requirements.txt       # Python dependencies
   frontend/
     src/
