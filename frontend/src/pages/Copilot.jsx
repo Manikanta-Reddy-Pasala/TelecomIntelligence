@@ -1010,7 +1010,7 @@ export default function Copilot() {
 
     try {
       const conversationHistory = messages.map((m) => ({ role: m.role, content: m.content }));
-      const response = await copilotService.chat(text, selectedCaseId, conversationHistory, dateFrom || undefined, dateTo || undefined);
+      const response = await copilotService.chat(text, null, conversationHistory);
 
       const aiMsg = {
         role: 'assistant',
@@ -1054,7 +1054,7 @@ export default function Copilot() {
       setLoading(false);
       inputRef.current?.focus();
     }
-  }, [input, loading, messages, selectedCaseId, dateFrom, dateTo]);
+  }, [input, loading, messages]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1086,7 +1086,11 @@ export default function Copilot() {
     { text: 'Give all info about +919656152900', icon: Search },
     { text: 'Show contact network for +919590122159', icon: GitBranch },
     { text: 'Check anomalies for +919845122940', icon: AlertTriangle },
-    { text: 'Track movement of +919679984033', icon: Navigation },
+    { text: 'Pattern of life for +919656152900', icon: Clock },
+    { text: 'Night activity for +919845122940', icon: Eye },
+    { text: 'Top contacts for +919679984033', icon: Phone },
+    { text: 'Identity changes for +919378304807', icon: Shield },
+    { text: 'Generate report for +919656152900', icon: FileText },
   ];
 
   const evidenceCounts = useMemo(() => {
@@ -1107,7 +1111,7 @@ export default function Copilot() {
       {/* ================================================================== */}
       <div className="w-[40%] flex flex-col border-r border-slate-800/60 glass">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-800/50 shrink-0 space-y-3">
+        <div className="px-5 py-4 border-b border-slate-800/50 shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-violet-500/20 border border-blue-500/20 flex items-center justify-center">
@@ -1118,46 +1122,10 @@ export default function Copilot() {
                 <p className="text-[10px] text-slate-500">Intelligence Analysis Assistant</p>
               </div>
             </div>
-            <select
-              value={selectedCaseId || ''}
-              onChange={(e) => setSelectedCaseId(e.target.value || null)}
-              className="text-xs bg-slate-800/80 border border-slate-700/50 rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500/30 transition-all cursor-pointer"
-            >
-              <option value="">No case selected</option>
-              {(Array.isArray(casesData) ? casesData : casesData?.cases || []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title || c.id}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Date range */}
-          <div className="flex items-center gap-2">
-            <Calendar size={13} className="text-slate-500 shrink-0" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="flex-1 bg-slate-800/60 border border-slate-700/40 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all"
-              placeholder="From"
-            />
-            <span className="text-slate-600 text-[10px] font-medium">to</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="flex-1 bg-slate-800/60 border border-slate-700/40 rounded-lg px-2.5 py-1.5 text-[11px] text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all"
-              placeholder="To"
-            />
-            {(dateFrom || dateTo) && (
-              <button
-                onClick={() => { setDateFrom(''); setDateTo(''); }}
-                className="text-[10px] text-slate-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-slate-800/60 transition-colors"
-              >
-                Clear
-              </button>
-            )}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/20">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              <span className="text-[10px] text-green-400 font-medium">Online</span>
+            </div>
           </div>
         </div>
 
@@ -1173,17 +1141,19 @@ export default function Copilot() {
               <p className="text-sm text-slate-500 max-w-xs leading-relaxed">
                 Query telecom intelligence data, investigate phone numbers, analyze call patterns, and trace movement with AI-powered analysis.
               </p>
-              <div className="mt-8 grid grid-cols-2 gap-3 w-full max-w-md">
+              <div className="mt-6 grid grid-cols-2 gap-2 w-full max-w-lg">
                 {suggestions.map(({ text, icon: SIcon }) => (
                   <button
                     key={text}
                     onClick={() => handleSuggestionClick(text)}
-                    className="text-left p-3.5 rounded-xl glass-card hover:bg-slate-700/40 hover:border-slate-600/50 transition-all duration-200 group"
+                    className="text-left p-3 rounded-xl glass-card hover:bg-slate-700/40 hover:border-slate-600/50 transition-all duration-200 group"
                   >
-                    <SIcon size={14} className="text-blue-400/70 mb-2 group-hover:text-blue-400 transition-colors" />
-                    <span className="text-xs text-slate-400 group-hover:text-slate-200 transition-colors leading-relaxed block">
-                      {text}
-                    </span>
+                    <div className="flex items-start gap-2">
+                      <SIcon size={13} className="text-blue-400/60 mt-0.5 shrink-0 group-hover:text-blue-400 transition-colors" />
+                      <span className="text-[11px] text-slate-400 group-hover:text-slate-200 transition-colors leading-relaxed">
+                        {text}
+                      </span>
+                    </div>
                   </button>
                 ))}
               </div>

@@ -27,13 +27,24 @@ logger = logging.getLogger(__name__)
 _MSISDN_RE = re.compile(r'\+?\d{10,15}')
 _IMEI_RE = re.compile(r'\b\d{15}\b')
 
-# Keywords for intent classification (fallback when LLM unavailable)
+# Keywords for intent classification
 _INTENT_KEYWORDS = {
     "relationship": ["contact", "contacts", "network", "called", "communicated", "common", "who called", "who contacted", "relationship"],
     "location": ["location", "tower", "movement", "trail", "where", "co-location", "colocation", "traveled", "travel"],
     "timeline": ["timeline", "history", "chronolog", "when", "activity", "events"],
     "content": ["message", "sms", "text", "content", "conversation", "topic"],
     "pattern": ["anomal", "unusual", "pattern", "spike", "burst", "suspicious", "impossible"],
+    # Advanced investigation tools
+    "tower_dump": ["tower dump", "tower-dump", "towerdump", "who was at tower", "phones at tower", "devices at tower"],
+    "geofence": ["geofence", "geo-fence", "geo fence", "area surveillance", "bounding box", "zone"],
+    "pattern_of_life": ["pattern of life", "daily routine", "sleep location", "work location", "routine", "behavioral", "behaviour"],
+    "identity_change": ["imei change", "sim change", "sim swap", "device change", "identity change", "new device", "new sim"],
+    "common_numbers": ["common number", "shared contact", "common contact", "overlap", "mutual contact"],
+    "call_chain": ["call chain", "chain analysis", "connection chain", "degrees of separation", "path between", "linked to"],
+    "night_activity": ["night activity", "night calls", "late night", "midnight", "nocturnal", "after hours"],
+    "top_contacts": ["top contact", "most called", "frequently called", "frequent contact", "heatmap", "top numbers"],
+    "report": ["report", "dossier", "full report", "generate report", "comprehensive report"],
+    "stats": ["stats", "statistics", "summary stats", "activity stats", "quick stats"],
 }
 
 
@@ -51,7 +62,7 @@ class CopilotService:
     ) -> CopilotResponse:
         """Main entry point: extract params, classify, execute comprehensively, respond."""
 
-        # Parse date range
+        # Parse date range from explicit params or extract from message
         dt_from = None
         dt_to = None
         if date_from:
@@ -64,6 +75,10 @@ class CopilotService:
                 dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
             except ValueError:
                 pass
+
+        # Extract date ranges from natural language in message
+        if not dt_from and not dt_to:
+            dt_from, dt_to = self._extract_date_range(message)
 
         # Step 1: Extract parameters directly with regex (no LLM dependency)
         msisdns = _MSISDN_RE.findall(message)
@@ -91,10 +106,10 @@ class CopilotService:
             plan["target_msisdn"] = target_msisdn
         if person_name:
             plan["person_name"] = person_name
-        if date_from:
-            plan["date_from"] = date_from
-        if date_to:
-            plan["date_to"] = date_to
+        if dt_from:
+            plan["date_from"] = dt_from.strftime("%Y-%m-%d")
+        if dt_to:
+            plan["date_to"] = dt_to.strftime("%Y-%m-%d")
 
         # Step 4: Execute comprehensively - fetch ALL relevant data for the MSISDN
         result = await self._execute_comprehensive(db, message, intent, msisdn, target_msisdn, person_name, dt_from, dt_to)
@@ -147,14 +162,92 @@ class CopilotService:
     # Intent classification (keyword-based, no LLM needed)
     # ------------------------------------------------------------------
 
+    def _extract_date_range(self, message: str) -> tuple[Optional[datetime], Optional[datetime]]:
+        """Extract date range from natural language in the message."""
+        msg_lower = message.lower()
+        now = datetime.utcnow()
+
+        # "last N days"
+        m = re.search(r'last\s+(\d+)\s+days?', msg_lower)
+        if m:
+            days = int(m.group(1))
+            return now - timedelta(days=days), now
+
+        # "last N hours"
+        m = re.search(r'last\s+(\d+)\s+hours?', msg_lower)
+        if m:
+            hours = int(m.group(1))
+            return now - timedelta(hours=hours), now
+
+        # "last week"
+        if "last week" in msg_lower:
+            return now - timedelta(days=7), now
+
+        # "last month"
+        if "last month" in msg_lower:
+            return now - timedelta(days=30), now
+
+        # "last 3 months" / "last N months"
+        m = re.search(r'last\s+(\d+)\s+months?', msg_lower)
+        if m:
+            months = int(m.group(1))
+            return now - timedelta(days=months * 30), now
+
+        # "today"
+        if "today" in msg_lower:
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            return start, now
+
+        # "yesterday"
+        if "yesterday" in msg_lower:
+            start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start.replace(hour=23, minute=59, second=59)
+            return start, end
+
+        # "this week"
+        if "this week" in msg_lower:
+            start = now - timedelta(days=now.weekday())
+            return start.replace(hour=0, minute=0, second=0, microsecond=0), now
+
+        # "in January" / "in March" etc.
+        months_map = {"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                       "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+                       "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+        for month_name, month_num in months_map.items():
+            if f"in {month_name}" in msg_lower or f"during {month_name}" in msg_lower:
+                year = now.year if month_num <= now.month else now.year - 1
+                start = datetime(year, month_num, 1)
+                if month_num == 12:
+                    end = datetime(year + 1, 1, 1) - timedelta(seconds=1)
+                else:
+                    end = datetime(year, month_num + 1, 1) - timedelta(seconds=1)
+                return start, end
+
+        # No date range found - return None (use all data)
+        return None, None
+
     def _classify_intent_keywords(self, message: str) -> str:
         msg_lower = message.lower()
 
         # Check for "all info" / "everything" type queries
-        if any(kw in msg_lower for kw in ["all info", "everything", "full", "details", "summary", "investigate"]):
+        if any(kw in msg_lower for kw in ["all info", "everything", "full details", "investigate"]):
             return "comprehensive"
 
-        for intent, keywords in _INTENT_KEYWORDS.items():
+        # Check ADVANCED tools FIRST (more specific keywords)
+        advanced_intents = [
+            "tower_dump", "geofence", "pattern_of_life", "identity_change",
+            "common_numbers", "call_chain", "night_activity", "top_contacts",
+            "report", "stats",
+        ]
+        for intent in advanced_intents:
+            keywords = _INTENT_KEYWORDS.get(intent, [])
+            if any(kw in msg_lower for kw in keywords):
+                return intent
+
+        # Then check basic intents
+        basic_intents = ["relationship", "location", "timeline", "content", "pattern"]
+        for intent in basic_intents:
+            keywords = _INTENT_KEYWORDS.get(intent, [])
             if any(kw in msg_lower for kw in keywords):
                 return intent
 
@@ -391,11 +484,127 @@ class CopilotService:
                 if colocations:
                     result["has_data"] = True
                     result["evidence"].append(Evidence(
-                        source="co-location",
-                        data={"colocation_events": len(colocations), "msisdn1": msisdn, "msisdn2": target_msisdn},
+                        source="Co-location Analysis",
+                        data={"colocation_events": len(colocations), "msisdn1": msisdn, "msisdn2": target_msisdn,
+                              "events": colocations[:20]},
                         relevance=0.9,
                     ))
                     result["summary_parts"].append(f"Co-location: {len(colocations)} events with {target_msisdn}")
+
+            # ============================================================
+            # ADVANCED INVESTIGATION TOOLS
+            # ============================================================
+
+            # --- PATTERN OF LIFE ---
+            if intent in ("pattern_of_life", "comprehensive"):
+                pol = await self._fetch_pattern_of_life(db, msisdn)
+                if pol:
+                    result["has_data"] = True
+                    result["evidence"].append(Evidence(
+                        source="Pattern of Life",
+                        data=pol,
+                        relevance=0.9,
+                    ))
+                    sleep_tower = pol.get("sleep_location", {}).get("tower_id", "Unknown")
+                    work_tower = pol.get("work_location", {}).get("tower_id", "Unknown")
+                    result["summary_parts"].append(
+                        f"Pattern of Life: sleeps near {sleep_tower}, works near {work_tower}, "
+                        f"routine score: {pol.get('routine_score', 0):.0%}"
+                    )
+
+            # --- IDENTITY CHANGES (SIM/IMEI) ---
+            if intent in ("identity_change", "comprehensive"):
+                id_changes = await self._fetch_identity_changes(db, msisdn)
+                if id_changes and id_changes.get("identity_changes"):
+                    result["has_data"] = True
+                    result["evidence"].append(Evidence(
+                        source="Identity Changes (SIM/IMEI)",
+                        data=id_changes,
+                        relevance=0.9,
+                    ))
+                    result["summary_parts"].append(
+                        f"Identity changes: {len(id_changes['identity_changes'])} detected, "
+                        f"risk: {id_changes.get('risk_assessment', 'LOW')}"
+                    )
+
+            # --- NIGHT ACTIVITY ---
+            if intent in ("night_activity",):
+                night = await self._fetch_night_activity(db, msisdn, dt_from, dt_to)
+                if night:
+                    result["has_data"] = True
+                    result["evidence"].append(Evidence(
+                        source="Night Activity",
+                        data=night,
+                        relevance=0.9,
+                    ))
+                    result["summary_parts"].append(
+                        f"Night activity: {night['total_night_calls']} calls, "
+                        f"{night['total_night_messages']} messages between 11PM-5AM"
+                    )
+
+            # --- TOP CONTACTS ---
+            if intent in ("top_contacts",):
+                top = await self._fetch_top_contacts(db, msisdn, dt_from, dt_to)
+                if top:
+                    result["has_data"] = True
+                    result["evidence"].append(Evidence(
+                        source="Top Contacts",
+                        data={"contacts": top},
+                        relevance=0.85,
+                    ))
+                    if top:
+                        result["summary_parts"].append(
+                            f"Top contact: {top[0]['msisdn']} with {top[0]['total_interactions']} interactions"
+                        )
+
+            # --- ACTIVITY STATS ---
+            if intent in ("stats",):
+                stats = await self._fetch_stats(db, msisdn)
+                if stats:
+                    result["has_data"] = True
+                    result["evidence"].append(Evidence(
+                        source="Activity Statistics",
+                        data=stats,
+                        relevance=0.85,
+                    ))
+                    result["summary_parts"].append(
+                        f"Stats: {stats['total_calls']} calls, {stats['total_messages']} messages, "
+                        f"{stats['unique_contacts']} contacts, most active: {stats.get('most_active_day', '?')}"
+                    )
+
+            # --- CALL CHAIN (needs two MSISDNs) ---
+            if intent == "call_chain" and target_msisdn:
+                path = await GraphAnalyticsService.find_shortest_path(db, msisdn, target_msisdn, 4)
+                if path:
+                    result["has_data"] = True
+                    result["evidence"].append(Evidence(
+                        source="Call Chain Analysis",
+                        data={"path": path, "hops": len(path) - 1, "source": msisdn, "target": target_msisdn},
+                        relevance=0.95,
+                    ))
+                    result["summary_parts"].append(
+                        f"Call chain: {msisdn} → {' → '.join(p[-6:] for p in path[1:])} ({len(path)-1} hops)"
+                    )
+                elif intent == "call_chain":
+                    result["summary_parts"].append(f"No call chain found between {msisdn} and {target_msisdn} within 4 hops")
+
+            # --- REPORT (dossier) ---
+            if intent == "report":
+                # Already fetching comprehensive data above, just add extra sections
+                pol = await self._fetch_pattern_of_life(db, msisdn)
+                if pol:
+                    result["evidence"].append(Evidence(source="Pattern of Life", data=pol, relevance=0.9))
+                id_ch = await self._fetch_identity_changes(db, msisdn)
+                if id_ch:
+                    result["evidence"].append(Evidence(source="Identity Changes", data=id_ch, relevance=0.9))
+                night = await self._fetch_night_activity(db, msisdn, dt_from, dt_to)
+                if night:
+                    result["evidence"].append(Evidence(source="Night Activity", data=night, relevance=0.85))
+                stats = await self._fetch_stats(db, msisdn)
+                if stats:
+                    result["evidence"].append(Evidence(source="Activity Statistics", data=stats, relevance=0.85))
+                result["has_data"] = True
+                result["summary_parts"].append("Full investigation report generated with all sections")
 
         return result
 
@@ -490,6 +699,261 @@ class CopilotService:
         return list(res.scalars().all())
 
     # ------------------------------------------------------------------
+    # Advanced investigation tool helpers
+    # ------------------------------------------------------------------
+
+    async def _fetch_pattern_of_life(self, db: AsyncSession, msisdn: str, days: int = 30) -> Optional[dict]:
+        """Sleep/work/weekend locations + hourly/weekly histograms."""
+        import math
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        stmt = (
+            select(
+                func.extract("hour", LocationEvent.timestamp).label("hr"),
+                func.extract("dow", LocationEvent.timestamp).label("dow"),
+                LocationEvent.tower_id,
+                func.count().label("cnt"),
+            )
+            .where(LocationEvent.msisdn == msisdn, LocationEvent.timestamp >= cutoff)
+            .group_by("hr", "dow", LocationEvent.tower_id)
+        )
+        res = await db.execute(stmt)
+        rows = res.all()
+        if not rows:
+            return None
+
+        hourly = [0] * 24
+        weekly = [0] * 7
+        night_towers: dict[int, int] = {}
+        work_towers: dict[int, int] = {}
+        weekend_towers: dict[int, int] = {}
+
+        dow_map = {0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5}  # pg dow -> Mon=0
+
+        for r in rows:
+            hr = int(r.hr)
+            day_idx = dow_map.get(int(r.dow), 0)
+            hourly[hr] += r.cnt
+            weekly[day_idx] += r.cnt
+            if hr >= 23 or hr < 6:
+                night_towers[r.tower_id] = night_towers.get(r.tower_id, 0) + r.cnt
+            if 9 <= hr < 18 and day_idx < 5:
+                work_towers[r.tower_id] = work_towers.get(r.tower_id, 0) + r.cnt
+            if day_idx >= 5:
+                weekend_towers[r.tower_id] = weekend_towers.get(r.tower_id, 0) + r.cnt
+
+        async def _tower_info(tower_counts: dict) -> dict:
+            if not tower_counts:
+                return {"tower_id": None, "confidence": 0}
+            top_id = max(tower_counts, key=tower_counts.get)
+            total = sum(tower_counts.values())
+            t_stmt = select(Tower).where(Tower.id == top_id)
+            t_res = await db.execute(t_stmt)
+            tower = t_res.scalar_one_or_none()
+            return {
+                "tower_id": tower.tower_id if tower else str(top_id),
+                "latitude": tower.latitude if tower else None,
+                "longitude": tower.longitude if tower else None,
+                "city": tower.city if tower else None,
+                "confidence": round(tower_counts[top_id] / max(total, 1), 2),
+            }
+
+        total_events = sum(hourly)
+        entropy = 0
+        if total_events > 0:
+            for h in hourly:
+                if h > 0:
+                    p = h / total_events
+                    entropy -= p * math.log(p)
+            max_entropy = math.log(24)
+            routine_score = round(1 - (entropy / max_entropy), 2) if max_entropy > 0 else 0
+        else:
+            routine_score = 0
+
+        return {
+            "analysis_days": days,
+            "sleep_location": await _tower_info(night_towers),
+            "work_location": await _tower_info(work_towers),
+            "weekend_location": await _tower_info(weekend_towers),
+            "hourly_activity": hourly,
+            "weekly_activity": weekly,
+            "routine_score": routine_score,
+        }
+
+    async def _fetch_identity_changes(self, db: AsyncSession, msisdn: str) -> Optional[dict]:
+        """Check for SIM/device changes."""
+        stmt = select(PhoneNumber).where(PhoneNumber.msisdn == msisdn)
+        res = await db.execute(stmt)
+        phone = res.scalar_one_or_none()
+        if not phone:
+            return None
+
+        changes = []
+        risk_factors = 0
+
+        # Multiple SIMs
+        sim_stmt = select(SIM).where(SIM.phone_number_id == phone.id)
+        sim_res = await db.execute(sim_stmt)
+        sims = list(sim_res.scalars().all())
+        if len(sims) > 1:
+            changes.append({
+                "type": "multiple_sims",
+                "count": len(sims),
+                "details": [{"imsi": s.imsi, "iccid": s.iccid, "status": s.status} for s in sims],
+            })
+            risk_factors += 1
+
+        # Devices via SIMs
+        device_ids = {s.device_id for s in sims if s.device_id}
+        if len(device_ids) > 1:
+            dev_stmt = select(Device).where(Device.id.in_(device_ids))
+            dev_res = await db.execute(dev_stmt)
+            devices = list(dev_res.scalars().all())
+            changes.append({
+                "type": "multiple_devices_via_sim",
+                "count": len(devices),
+                "details": [{"imei": d.imei, "brand": d.brand, "model": d.model} for d in devices],
+            })
+            risk_factors += 1
+
+        # Devices via person
+        if phone.person_id:
+            pd_stmt = select(Device).where(Device.person_id == phone.person_id)
+            pd_res = await db.execute(pd_stmt)
+            person_devices = list(pd_res.scalars().all())
+            if len(person_devices) > 1:
+                changes.append({
+                    "type": "multiple_personal_devices",
+                    "count": len(person_devices),
+                    "details": [{"imei": d.imei, "brand": d.brand, "model": d.model} for d in person_devices],
+                })
+                risk_factors += 1
+
+        risk = "HIGH" if risk_factors >= 3 else "MEDIUM" if risk_factors >= 1 else "LOW"
+        return {"identity_changes": changes, "risk_assessment": risk}
+
+    async def _fetch_night_activity(self, db: AsyncSession, msisdn: str,
+                                     dt_from: Optional[datetime] = None, dt_to: Optional[datetime] = None) -> dict:
+        """Calls/messages between 11PM-5AM."""
+        hour_filter_call = or_(
+            func.extract("hour", CallRecord.start_time) >= 23,
+            func.extract("hour", CallRecord.start_time) < 5,
+        )
+        calls_stmt = select(CallRecord).where(
+            or_(CallRecord.caller_msisdn == msisdn, CallRecord.callee_msisdn == msisdn),
+            hour_filter_call,
+        ).order_by(CallRecord.start_time.desc()).limit(50)
+        if dt_from:
+            calls_stmt = calls_stmt.where(CallRecord.start_time >= dt_from)
+        if dt_to:
+            calls_stmt = calls_stmt.where(CallRecord.start_time <= dt_to)
+        calls_res = await db.execute(calls_stmt)
+        night_calls = []
+        for cr in calls_res.scalars().all():
+            direction = "outgoing" if cr.caller_msisdn == msisdn else "incoming"
+            night_calls.append({
+                "direction": direction,
+                "other_msisdn": cr.callee_msisdn if direction == "outgoing" else cr.caller_msisdn,
+                "timestamp": cr.start_time.isoformat(),
+                "duration_seconds": cr.duration_seconds,
+            })
+
+        hour_filter_msg = or_(
+            func.extract("hour", Message.timestamp) >= 23,
+            func.extract("hour", Message.timestamp) < 5,
+        )
+        msgs_stmt = select(Message).where(
+            or_(Message.sender_msisdn == msisdn, Message.receiver_msisdn == msisdn),
+            hour_filter_msg,
+        ).order_by(Message.timestamp.desc()).limit(30)
+        if dt_from:
+            msgs_stmt = msgs_stmt.where(Message.timestamp >= dt_from)
+        if dt_to:
+            msgs_stmt = msgs_stmt.where(Message.timestamp <= dt_to)
+        msgs_res = await db.execute(msgs_stmt)
+        night_messages = []
+        for m in msgs_res.scalars().all():
+            night_messages.append({
+                "direction": "sent" if m.sender_msisdn == msisdn else "received",
+                "other_msisdn": m.receiver_msisdn if m.sender_msisdn == msisdn else m.sender_msisdn,
+                "timestamp": m.timestamp.isoformat(),
+            })
+
+        return {
+            "total_night_calls": len(night_calls),
+            "total_night_messages": len(night_messages),
+            "night_calls": night_calls[:20],
+            "night_messages": night_messages[:10],
+        }
+
+    async def _fetch_top_contacts(self, db: AsyncSession, msisdn: str,
+                                   dt_from: Optional[datetime] = None, dt_to: Optional[datetime] = None) -> list[dict]:
+        """Top contacts by interaction count."""
+        contacts = await GraphAnalyticsService.get_contact_network(db, msisdn, dt_from, dt_to)
+        result = []
+        for c in contacts[:15]:
+            total = c.get("outgoing_calls", 0) + c.get("incoming_calls", 0) + c.get("outgoing_messages", 0) + c.get("incoming_messages", 0)
+            result.append({
+                "msisdn": c["msisdn"],
+                "outgoing_calls": c.get("outgoing_calls", 0),
+                "incoming_calls": c.get("incoming_calls", 0),
+                "outgoing_messages": c.get("outgoing_messages", 0),
+                "incoming_messages": c.get("incoming_messages", 0),
+                "total_duration_sec": c.get("total_call_duration", 0),
+                "total_interactions": total,
+            })
+        return result
+
+    async def _fetch_stats(self, db: AsyncSession, msisdn: str, days: int = 30) -> dict:
+        """Quick activity stats."""
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        out_calls = (await db.execute(select(func.count()).where(CallRecord.caller_msisdn == msisdn, CallRecord.start_time >= cutoff))).scalar() or 0
+        in_calls = (await db.execute(select(func.count()).where(CallRecord.callee_msisdn == msisdn, CallRecord.start_time >= cutoff))).scalar() or 0
+        out_msgs = (await db.execute(select(func.count()).where(Message.sender_msisdn == msisdn, Message.timestamp >= cutoff))).scalar() or 0
+        in_msgs = (await db.execute(select(func.count()).where(Message.receiver_msisdn == msisdn, Message.timestamp >= cutoff))).scalar() or 0
+
+        # Unique contacts
+        contacts_set = set()
+        for stmt in [
+            select(CallRecord.callee_msisdn).where(CallRecord.caller_msisdn == msisdn, CallRecord.start_time >= cutoff),
+            select(CallRecord.caller_msisdn).where(CallRecord.callee_msisdn == msisdn, CallRecord.start_time >= cutoff),
+        ]:
+            res = await db.execute(stmt)
+            contacts_set.update(r[0] for r in res.all())
+        contacts_set.discard(msisdn)
+
+        # Most active hour
+        hr_stmt = select(
+            func.extract("hour", CallRecord.start_time).label("hr"), func.count().label("cnt")
+        ).where(
+            or_(CallRecord.caller_msisdn == msisdn, CallRecord.callee_msisdn == msisdn),
+            CallRecord.start_time >= cutoff,
+        ).group_by("hr").order_by(func.count().desc()).limit(1)
+        hr_res = (await db.execute(hr_stmt)).first()
+
+        # Most active day
+        dow_names = {0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday"}
+        dow_stmt = select(
+            func.extract("dow", CallRecord.start_time).label("dow"), func.count().label("cnt")
+        ).where(
+            or_(CallRecord.caller_msisdn == msisdn, CallRecord.callee_msisdn == msisdn),
+            CallRecord.start_time >= cutoff,
+        ).group_by("dow").order_by(func.count().desc()).limit(1)
+        dow_res = (await db.execute(dow_stmt)).first()
+
+        total_calls = out_calls + in_calls
+        return {
+            "total_calls": total_calls,
+            "outgoing_calls": out_calls,
+            "incoming_calls": in_calls,
+            "total_messages": out_msgs + in_msgs,
+            "outgoing_messages": out_msgs,
+            "incoming_messages": in_msgs,
+            "unique_contacts": len(contacts_set),
+            "most_active_hour": f"{int(hr_res.hr):02d}:00" if hr_res else None,
+            "most_active_day": dow_names.get(int(dow_res.dow), "Unknown") if dow_res else None,
+        }
+
+    # ------------------------------------------------------------------
     # Response generation
     # ------------------------------------------------------------------
 
@@ -549,21 +1013,30 @@ class CopilotService:
 
     def _generate_suggestions(self, intent: str, msisdn: Optional[str], target: Optional[str]) -> list[str]:
         if msisdn:
-            suggestions = [
+            base = [
                 f"Show contact network for {msisdn}",
-                f"Show movement trail for {msisdn}",
                 f"Check anomalies for {msisdn}",
-                f"Show call timeline for {msisdn}",
+                f"Pattern of life for {msisdn}",
+                f"Night activity for {msisdn}",
+                f"Top contacts for {msisdn}",
+                f"Generate report for {msisdn}",
+                f"Activity stats for {msisdn}",
+                f"Identity changes for {msisdn}",
             ]
-            if not target:
-                suggestions.append(f"Show messages for {msisdn}")
-            return suggestions
+            # Show different suggestions based on what they just asked
+            if intent == "comprehensive":
+                return base[:4]
+            elif intent in ("relationship", "top_contacts"):
+                return [f"Pattern of life for {msisdn}", f"Night activity for {msisdn}", f"Generate report for {msisdn}", f"Activity stats for {msisdn}"]
+            elif intent in ("pattern_of_life", "identity_change"):
+                return [f"Night activity for {msisdn}", f"Top contacts for {msisdn}", f"Show contact network for {msisdn}", f"Generate report for {msisdn}"]
+            return base[:5]
 
         return [
             "Show all info about +919656152900",
-            "Who contacted +919590122159 recently?",
-            "Check anomalies for +919845122940",
-            "Show movement trail for +919679984033",
+            "Pattern of life for +919845122940",
+            "Night activity for +919679984033",
+            "Generate report for +919590122159",
         ]
 
     async def _call_ollama(self, prompt: str) -> str:
