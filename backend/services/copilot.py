@@ -467,22 +467,40 @@ class CopilotService:
             # === ANOMALIES (evidence) ===
             if intent in ("comprehensive", "pattern"):
                 anomalies = await AnomalyDetectionService.get_anomalies_for_msisdn(db, msisdn)
-                impossible = await AnomalyDetectionService.detect_impossible_travel(db, msisdn)
+                # Limit impossible travel to last 7 days to avoid flood of results
+                seven_days_ago = datetime.utcnow() - timedelta(days=7)
+                impossible = await AnomalyDetectionService.detect_impossible_travel(
+                    db, msisdn, from_date=seven_days_ago
+                )
                 all_anomalies = []
                 for a in anomalies:
                     all_anomalies.append({
                         "type": a.anomaly_type, "description": a.description,
                         "severity": a.severity, "detected_at": a.detected_at.isoformat(),
                     })
-                all_anomalies.extend(impossible)
+                # Cap impossible travel at top 5 most extreme
+                impossible_sorted = sorted(impossible, key=lambda x: x.get("implied_speed_kmh", 0), reverse=True)[:5]
+                all_anomalies.extend(impossible_sorted)
                 if all_anomalies:
                     result["has_data"] = True
+                    stored_count = len(anomalies)
+                    realtime_count = len(impossible_sorted)
                     result["evidence"].append(Evidence(
                         source="Anomaly Detection",
-                        data={"total_anomalies": len(all_anomalies), "alerts": all_anomalies},
+                        data={
+                            "stored_alerts": stored_count,
+                            "realtime_impossible_travel": realtime_count,
+                            "total_anomalies": stored_count + realtime_count,
+                            "alerts": all_anomalies,
+                        },
                         relevance=0.95,
                     ))
-                    result["summary_parts"].append(f"Anomalies detected: {len(all_anomalies)}")
+                    severity_counts = {}
+                    for a in all_anomalies:
+                        s = a.get("severity", "unknown")
+                        severity_counts[s] = severity_counts.get(s, 0) + 1
+                    sev_str = ", ".join(f"{v} {k}" for k, v in severity_counts.items())
+                    result["summary_parts"].append(f"Anomalies: {len(all_anomalies)} alerts ({sev_str})")
 
             # === CO-LOCATION (if two MSISDNs) ===
             if target_msisdn and intent in ("comprehensive", "location"):
@@ -1163,20 +1181,41 @@ class CopilotService:
             if risk and risk > 0.7:
                 facts += f"\n- HIGH RISK - Risk score: {risk:.0%}"
 
-        # Ask LLM to provide analyst-grade summary (with 10s timeout)
-        # Use the structured format that matches the custom tiac-analyst model
+        # Build a SHORT facts string for LLM (keep under 200 chars to avoid timeout)
+        short_facts = []
+        entity_name = entity.get("name", "Unknown") if entity else "Unknown"
+        carrier = entity.get("carrier", "?") if entity else "?"
+        for part in summary_parts:
+            # Shorten each part
+            if "belongs to" in part:
+                short_facts.append(f"{entity_name} ({carrier}), active")
+            elif "call records" in part.lower():
+                short_facts.append(part.split("Found ")[-1] if "Found" in part else part)
+            elif "messages" in part.lower() and "search" not in part.lower():
+                short_facts.append(part.split("Found ")[-1] if "Found" in part else part)
+            elif "contact network" in part.lower():
+                short_facts.append(part)
+            elif "anomal" in part.lower():
+                short_facts.append(part)
+            elif "pattern" in part.lower():
+                short_facts.append(part)
+            else:
+                short_facts.append(part[:80])
+
+        facts_str = ". ".join(short_facts[:6])  # Max 6 facts
+
         prompt = (
             f"Query: {message}\n"
-            f"Facts: {'. '.join(summary_parts)}\n"
+            f"Facts: {facts_str}\n"
             f"Response:"
         )
 
         try:
-            llm_text = await asyncio.wait_for(self._call_ollama(prompt), timeout=10.0)
-            if llm_text and len(llm_text) > 30 and "unavailable" not in llm_text.lower():
+            llm_text = await asyncio.wait_for(self._call_ollama(prompt), timeout=20.0)
+            if llm_text and len(llm_text) > 30 and "unavailable" not in llm_text.lower() and "error" not in llm_text.lower():
                 return header + llm_text.strip()
         except asyncio.TimeoutError:
-            logger.warning("LLM timed out after 15s, using structured fallback")
+            logger.warning("LLM timed out, using structured fallback")
         except Exception as e:
             logger.warning("LLM failed: %s, using structured fallback", e)
 
