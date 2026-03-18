@@ -1308,42 +1308,59 @@ class CopilotService:
             if risk and risk > 0.7:
                 facts += f"\n- HIGH RISK - Risk score: {risk:.0%}"
 
-        # Build intelligent structured response (instant, no LLM dependency)
-        # The data itself IS the intelligence - tabs show everything
-        lines = []
-        for part in summary_parts:
-            lines.append(f"- {part}")
-
-        # Add risk assessment based on data
+        # Build risk assessment from data
         risk = "LOW"
-        risk_reason = "Normal communication patterns"
+        risk_reason = "Normal patterns"
         if entity:
             if entity.get("watchlist"):
                 risk = "CRITICAL"
-                risk_reason = "Subject is on watchlist"
+                risk_reason = "Watchlisted"
             elif entity.get("risk_score", 0) > 0.7:
                 risk = "HIGH"
-                risk_reason = f"Risk score: {entity['risk_score']:.0%}"
+                risk_reason = f"Risk score {entity['risk_score']:.0%}"
         for part in summary_parts:
-            if "anomal" in part.lower() and ("critical" in part.lower() or "impossible" in part.lower()):
+            pl = part.lower()
+            if "impossible" in pl or ("anomal" in pl and "critical" in pl):
                 risk = "CRITICAL"
-                risk_reason = "Critical anomalies detected"
-            elif "anomal" in part.lower():
-                if risk not in ("CRITICAL", "HIGH"):
-                    risk = "HIGH"
-                    risk_reason = "Anomalies flagged"
-            elif "burst" in part.lower() or "200x" in part.lower():
+                risk_reason = "Critical anomalies"
+            elif "burst" in pl or "200x" in pl:
                 risk = "CRITICAL"
-                risk_reason = "Contact burst detected"
-            elif "night" in part.lower() and "50" in part.lower():
-                if risk == "LOW":
-                    risk = "MEDIUM"
-                    risk_reason = "Significant night activity"
+                risk_reason = "Contact burst"
+            elif "anomal" in pl and risk not in ("CRITICAL",):
+                risk = "HIGH"
+                risk_reason = "Anomalies detected"
+            elif "night" in pl and risk == "LOW":
+                risk = "MEDIUM"
+                risk_reason = "Night activity"
 
-        body = "\n".join(lines)
-        risk_badge = f"\n\n**Risk: {risk}** — {risk_reason}"
+        facts_body = "\n".join(f"- {p}" for p in summary_parts)
+        risk_line = f"\n\n**Risk: {risk}** — {risk_reason}"
 
-        return header + body + risk_badge
+        # Try LLM for a one-line analyst insight (very short prompt, 5s timeout)
+        facts_oneliner = ". ".join(p[:60] for p in summary_parts[:4])
+        prompt = f"Query: {message}\nFacts: {facts_oneliner}\nResponse:"
+
+        try:
+            llm_text = await asyncio.wait_for(self._call_ollama(prompt), timeout=8.0)
+            if llm_text and len(llm_text) > 20 and "unavailable" not in llm_text.lower():
+                # Extract ONLY the SUMMARY line if it follows our format
+                clean = llm_text.strip()
+                # Look for our trained format
+                if "SUMMARY:" in clean:
+                    summary_line = clean.split("SUMMARY:")[-1].split("\n")[0].strip()
+                    if len(summary_line) > 20:
+                        return header + f"**{summary_line}**\n\n" + facts_body + risk_line
+                # Otherwise take first sentence only (and verify it's not hallucination)
+                first_sentence = clean.split(".")[0].strip()
+                if len(first_sentence) > 20 and len(first_sentence) < 200:
+                    # Basic hallucination check: must contain the MSISDN or entity name
+                    entity_name = entity.get("name", "") if entity else ""
+                    if msisdn and (msisdn[-6:] in first_sentence or entity_name.split()[0].lower() in first_sentence.lower()):
+                        return header + f"*{first_sentence}.*\n\n" + facts_body + risk_line
+        except (asyncio.TimeoutError, Exception):
+            pass
+
+        return header + facts_body + risk_line
 
     def _generate_suggestions(self, intent: str, msisdn: Optional[str], target: Optional[str]) -> list[str]:
         if msisdn:

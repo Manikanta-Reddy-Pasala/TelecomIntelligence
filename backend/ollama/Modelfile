@@ -1,9 +1,9 @@
-FROM qwen2.5:1.5b
+FROM mistral-small3.1
 
 PARAMETER temperature 0.15
 PARAMETER top_p 0.75
 PARAMETER top_k 15
-PARAMETER num_predict 200
+PARAMETER num_predict 80
 PARAMETER repeat_penalty 1.4
 PARAMETER stop "<|im_end|>"
 PARAMETER stop "Query:"
