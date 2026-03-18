@@ -1308,46 +1308,42 @@ class CopilotService:
             if risk and risk > 0.7:
                 facts += f"\n- HIGH RISK - Risk score: {risk:.0%}"
 
-        # Build a SHORT facts string for LLM (keep under 200 chars to avoid timeout)
-        short_facts = []
-        entity_name = entity.get("name", "Unknown") if entity else "Unknown"
-        carrier = entity.get("carrier", "?") if entity else "?"
+        # Build intelligent structured response (instant, no LLM dependency)
+        # The data itself IS the intelligence - tabs show everything
+        lines = []
         for part in summary_parts:
-            # Shorten each part
-            if "belongs to" in part:
-                short_facts.append(f"{entity_name} ({carrier}), active")
-            elif "call records" in part.lower():
-                short_facts.append(part.split("Found ")[-1] if "Found" in part else part)
-            elif "messages" in part.lower() and "search" not in part.lower():
-                short_facts.append(part.split("Found ")[-1] if "Found" in part else part)
-            elif "contact network" in part.lower():
-                short_facts.append(part)
+            lines.append(f"- {part}")
+
+        # Add risk assessment based on data
+        risk = "LOW"
+        risk_reason = "Normal communication patterns"
+        if entity:
+            if entity.get("watchlist"):
+                risk = "CRITICAL"
+                risk_reason = "Subject is on watchlist"
+            elif entity.get("risk_score", 0) > 0.7:
+                risk = "HIGH"
+                risk_reason = f"Risk score: {entity['risk_score']:.0%}"
+        for part in summary_parts:
+            if "anomal" in part.lower() and ("critical" in part.lower() or "impossible" in part.lower()):
+                risk = "CRITICAL"
+                risk_reason = "Critical anomalies detected"
             elif "anomal" in part.lower():
-                short_facts.append(part)
-            elif "pattern" in part.lower():
-                short_facts.append(part)
-            else:
-                short_facts.append(part[:80])
+                if risk not in ("CRITICAL", "HIGH"):
+                    risk = "HIGH"
+                    risk_reason = "Anomalies flagged"
+            elif "burst" in part.lower() or "200x" in part.lower():
+                risk = "CRITICAL"
+                risk_reason = "Contact burst detected"
+            elif "night" in part.lower() and "50" in part.lower():
+                if risk == "LOW":
+                    risk = "MEDIUM"
+                    risk_reason = "Significant night activity"
 
-        facts_str = ". ".join(short_facts[:6])  # Max 6 facts
+        body = "\n".join(lines)
+        risk_badge = f"\n\n**Risk: {risk}** — {risk_reason}"
 
-        prompt = (
-            f"Query: {message}\n"
-            f"Facts: {facts_str}\n"
-            f"Response:"
-        )
-
-        try:
-            llm_text = await asyncio.wait_for(self._call_ollama(prompt), timeout=20.0)
-            if llm_text and len(llm_text) > 30 and "unavailable" not in llm_text.lower() and "error" not in llm_text.lower():
-                return header + llm_text.strip()
-        except asyncio.TimeoutError:
-            logger.warning("LLM timed out, using structured fallback")
-        except Exception as e:
-            logger.warning("LLM failed: %s, using structured fallback", e)
-
-        # Fallback: structured summary
-        return header + "**Findings:**\n" + facts
+        return header + body + risk_badge
 
     def _generate_suggestions(self, intent: str, msisdn: Optional[str], target: Optional[str]) -> list[str]:
         if msisdn:
