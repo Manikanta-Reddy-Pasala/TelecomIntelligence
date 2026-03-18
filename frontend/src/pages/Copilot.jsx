@@ -1373,7 +1373,7 @@ export default function Copilot() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('tools');
+  const [activeTab, setActiveTab] = useState('pol');
   const [selectedCaseId, setSelectedCaseId] = useState(null);
   const [activeEvidence, setActiveEvidence] = useState(null);
   const [copiedIdx, setCopiedIdx] = useState(null);
@@ -1425,11 +1425,11 @@ export default function Copilot() {
       setActiveEvidence(aiMsg);
 
       if (aiMsg.pattern_of_life) setActiveTab('pol');
-      else if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('contacts');
-      else if (aiMsg.locations && aiMsg.locations.length > 0) setActiveTab('map');
+      else if (aiMsg.entity) setActiveTab('pol');
       else if (aiMsg.timeline && aiMsg.timeline.length > 0) setActiveTab('timeline');
+      else if (aiMsg.locations && aiMsg.locations.length > 0) setActiveTab('map');
+      else if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('contacts');
       else if (aiMsg.evidence && aiMsg.evidence.length > 0) setActiveTab('tools');
-      else if (aiMsg.entity) setActiveTab('entity');
     } catch (err) {
       const errMsg = {
         role: 'assistant',
@@ -1470,13 +1470,14 @@ export default function Copilot() {
     setTimeout(() => setCopiedIdx(null), 2000);
   };
 
+  const targetName = activeEvidence?.entity?.name;
   const tabs = [
+    { key: 'pol', label: 'Pattern of Life', icon: Activity },
     { key: 'tools', label: 'Tools', icon: Search },
     { key: 'timeline', label: 'Timeline', icon: Clock },
     { key: 'map', label: 'Map', icon: MapPin },
     { key: 'contacts', label: 'Contacts', icon: Users },
-    { key: 'entity', label: 'Entity', icon: UserCircle },
-    { key: 'pol', label: 'Pattern of Life', icon: Activity },
+    { key: 'entity', label: targetName || 'Target', icon: Target },
   ];
 
   const suggestions = [
