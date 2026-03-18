@@ -51,7 +51,7 @@ import {
 } from 'recharts';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import ForceGraph2D from 'react-force-graph-2d';
+// ForceGraph2D removed - replaced with contacts table
 
 // ---------------------------------------------------------------------------
 // Leaflet icon fix
@@ -781,178 +781,124 @@ function MapTab({ locations }) {
 // ---------------------------------------------------------------------------
 // Graph Tab
 // ---------------------------------------------------------------------------
-function GraphTab({ graphData }) {
-  const containerRef = useRef(null);
-  const [dimensions, setDimensions] = useState({ width: 600, height: 400 });
-  const graphRef = useRef(null);
+function ContactsTab({ graphData }) {
+  const [sortBy, setSortBy] = useState('weight');
+  const [sortDir, setSortDir] = useState('desc');
 
-  useEffect(() => {
-    if (containerRef.current) {
-      const obs = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-          setDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
-        }
-      });
-      obs.observe(containerRef.current);
-      return () => obs.disconnect();
-    }
-  }, []);
-
-  if (!graphData || !graphData.nodes || graphData.nodes.length === 0) {
+  if (!graphData || !graphData.nodes || graphData.nodes.length <= 1) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-slate-600">
-        <GitBranch size={36} className="mb-3 opacity-20" />
-        <p className="text-sm">No graph data available</p>
+        <Users size={36} className="mb-3 opacity-20" />
+        <p className="text-sm">No contact data available</p>
       </div>
     );
   }
 
-  const allWeights = graphData.nodes.filter((n) => !n.is_target).map((n) => n.weight || n.call_count || 1);
-  const maxWeight = Math.max(...allWeights, 1);
-  const minWeight = Math.min(...allWeights, 1);
+  const target = graphData.nodes.find(n => n.is_target);
+  const contacts = graphData.nodes
+    .filter(n => !n.is_target)
+    .map(n => ({
+      msisdn: n.msisdn || n.id,
+      calls: n.call_count || 0,
+      total: n.weight || 0,
+      label: n.label || (n.msisdn || '').slice(-6),
+    }))
+    .sort((a, b) => sortDir === 'desc' ? b[sortBy === 'calls' ? 'calls' : 'total'] - a[sortBy === 'calls' ? 'calls' : 'total'] : a[sortBy === 'calls' ? 'calls' : 'total'] - b[sortBy === 'calls' ? 'calls' : 'total']);
 
-  const getNodeColor = (node) => {
-    if (node.is_target) return '#3b82f6';
-    const ratio = maxWeight > minWeight ? (node.rawWeight - minWeight) / (maxWeight - minWeight) : 0.5;
-    if (ratio > 0.7) return '#ef4444';
-    if (ratio > 0.4) return '#f59e0b';
-    if (ratio > 0.2) return '#22c55e';
-    return '#64748b';
+  const maxTotal = Math.max(...contacts.map(c => c.total), 1);
+
+  const interEdges = (graphData.edges || []).filter(e => e.is_inter);
+  const totalCalls = contacts.reduce((s, c) => s + c.calls, 0);
+  const totalInteractions = contacts.reduce((s, c) => s + c.total, 0);
+
+  const handleSort = (col) => {
+    if (sortBy === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setSortBy(col); setSortDir('desc'); }
   };
-
-  const data = {
-    nodes: graphData.nodes.map((n) => {
-      const rawWeight = n.weight || n.call_count || 1;
-      const normalizedSize = n.is_target
-        ? 14
-        : 3 + (maxWeight > minWeight ? ((rawWeight - minWeight) / (maxWeight - minWeight)) * 10 : 3);
-      return {
-        id: n.id || n.msisdn,
-        label: n.label || (n.msisdn || n.id || '').slice(-6),
-        val: normalizedSize,
-        rawWeight,
-        is_target: n.is_target,
-        callCount: n.call_count || 0,
-        msisdn: n.msisdn || n.id,
-      };
-    }),
-    links: (graphData.edges || graphData.links || []).map((e) => {
-      const w = e.weight || e.call_count || 1;
-      return {
-        source: e.source || e.from,
-        target: e.target || e.to,
-        rawWeight: w,
-        value: 0.5 + (maxWeight > 0 ? (w / maxWeight) * 4 : 1),
-      };
-    }),
-  };
-  data.nodes.forEach((n) => { n.color = getNodeColor(n); });
-
-  const legendItems = [
-    { color: '#3b82f6', label: 'Target' },
-    { color: '#ef4444', label: 'Heavy' },
-    { color: '#f59e0b', label: 'Medium' },
-    { color: '#22c55e', label: 'Light' },
-    { color: '#64748b', label: 'Minimal' },
-  ];
 
   return (
-    <div className="h-[calc(100vh-260px)] flex flex-col">
-      {/* Legend */}
-      <div className="flex items-center gap-4 px-4 py-2.5 bg-slate-900/60 rounded-t-xl border-b border-slate-800/40 backdrop-blur-sm">
-        <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Contact Network</span>
-        <div className="flex items-center gap-3 ml-3">
-          {legendItems.map((l) => (
-            <div key={l.label} className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: l.color, boxShadow: `0 0 6px ${l.color}40` }} />
-              <span className="text-[10px] text-slate-500">{l.label}</span>
-            </div>
-          ))}
+    <div className="h-[calc(100vh-260px)] flex flex-col overflow-hidden">
+      {/* Summary bar */}
+      <div className="flex items-center gap-6 px-4 py-3 bg-slate-800/30 rounded-t-xl border-b border-slate-700/30 shrink-0">
+        <div>
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider">Target</div>
+          <div className="text-sm font-mono text-blue-400 font-semibold">{target?.msisdn || '--'}</div>
         </div>
-        <span className="ml-auto text-[10px] text-slate-600 font-mono">
-          {data.nodes.length} nodes / {data.links.length} links
-        </span>
+        <div className="h-8 w-px bg-slate-700/50" />
+        <div className="text-center">
+          <div className="text-lg font-bold text-slate-100">{contacts.length}</div>
+          <div className="text-[10px] text-slate-500">Contacts</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold text-slate-100">{totalCalls}</div>
+          <div className="text-[10px] text-slate-500">Calls</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold text-slate-100">{totalInteractions}</div>
+          <div className="text-[10px] text-slate-500">Interactions</div>
+        </div>
+        {interEdges.length > 0 && (
+          <>
+            <div className="h-8 w-px bg-slate-700/50" />
+            <div className="text-center">
+              <div className="text-lg font-bold text-amber-400">{interEdges.length}</div>
+              <div className="text-[10px] text-slate-500">Cross-links</div>
+            </div>
+          </>
+        )}
       </div>
 
-      <div ref={containerRef} className="flex-1 rounded-b-xl overflow-hidden bg-slate-950/80">
-        <ForceGraph2D
-          ref={graphRef}
-          graphData={data}
-          width={dimensions.width}
-          height={dimensions.height}
-          nodeLabel={(node) => `${node.msisdn}\n${node.callCount} calls`}
-          nodeRelSize={4}
-          nodeVal="val"
-          linkWidth={(link) => link.value}
-          linkColor={(link) => {
-            const ratio = maxWeight > 0 ? link.rawWeight / maxWeight : 0;
-            const alpha = 0.12 + ratio * 0.45;
-            return `rgba(100, 116, 139, ${alpha})`;
-          }}
-          linkDirectionalArrowLength={4}
-          linkDirectionalArrowRelPos={0.9}
-          linkDirectionalArrowColor={(link) => {
-            const ratio = maxWeight > 0 ? link.rawWeight / maxWeight : 0;
-            return ratio > 0.5 ? 'rgba(239, 68, 68, 0.6)' : 'rgba(100, 116, 139, 0.35)';
-          }}
-          linkCurvature={0.1}
-          backgroundColor="transparent"
-          cooldownTicks={80}
-          d3AlphaDecay={0.03}
-          d3VelocityDecay={0.3}
-          nodeCanvasObjectMode={() => 'replace'}
-          nodeCanvasObject={(node, ctx, globalScale) => {
-            const r = Math.sqrt(node.val) * 4;
-            const fontSize = Math.max(9, 11 / globalScale);
-
-            if (node.is_target) {
-              ctx.beginPath();
-              ctx.arc(node.x, node.y, r + 8, 0, 2 * Math.PI);
-              ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-              ctx.fill();
-              ctx.beginPath();
-              ctx.arc(node.x, node.y, r + 4, 0, 2 * Math.PI);
-              ctx.fillStyle = 'rgba(59, 130, 246, 0.18)';
-              ctx.fill();
-            }
-
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-            ctx.fillStyle = node.color;
-            ctx.fill();
-            ctx.strokeStyle = node.is_target ? '#60a5fa' : 'rgba(255,255,255,0.12)';
-            ctx.lineWidth = node.is_target ? 2.5 : 0.5;
-            ctx.stroke();
-
-            ctx.font = `${node.is_target ? 'bold ' : ''}${fontSize}px Inter, sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = node.is_target ? '#ffffff' : '#cbd5e1';
-            ctx.fillText(node.label, node.x, node.y + r + fontSize * 0.9);
-
-            if (!node.is_target && node.callCount > 50) {
-              const badgeText = String(node.callCount);
-              const badgeFontSize = Math.max(7, 9 / globalScale);
-              ctx.font = `bold ${badgeFontSize}px Inter, sans-serif`;
-              const tw = ctx.measureText(badgeText).width;
-              const bx = node.x - tw / 2 - 3;
-              const by = node.y - r - badgeFontSize * 0.7 - 3;
-              ctx.fillStyle = 'rgba(0,0,0,0.7)';
-              ctx.beginPath();
-              ctx.roundRect(bx, by, tw + 6, badgeFontSize + 4, 3);
-              ctx.fill();
-              ctx.fillStyle = '#fbbf24';
-              ctx.textBaseline = 'middle';
-              ctx.fillText(badgeText, node.x, by + (badgeFontSize + 4) / 2);
-            }
-          }}
-          onNodeClick={(node) => {
-            if (graphRef.current) {
-              graphRef.current.centerAt(node.x, node.y, 500);
-              graphRef.current.zoom(2.5, 500);
-            }
-          }}
-        />
+      {/* Contact table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-slate-900/95 backdrop-blur-sm z-10">
+            <tr>
+              <th className="text-left px-4 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold w-8">#</th>
+              <th className="text-left px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold">MSISDN</th>
+              <th
+                className="text-right px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold cursor-pointer hover:text-slate-300 select-none"
+                onClick={() => handleSort('calls')}
+              >
+                Calls {sortBy === 'calls' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </th>
+              <th
+                className="text-right px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold cursor-pointer hover:text-slate-300 select-none"
+                onClick={() => handleSort('weight')}
+              >
+                Total {sortBy === 'weight' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </th>
+              <th className="text-left px-3 py-2.5 text-[10px] text-slate-500 uppercase tracking-wider font-semibold w-48">Strength</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/20">
+            {contacts.map((c, i) => {
+              const pct = Math.round((c.total / maxTotal) * 100);
+              const barColor = pct > 70 ? 'bg-red-500' : pct > 40 ? 'bg-amber-500' : pct > 20 ? 'bg-green-500' : 'bg-slate-500';
+              return (
+                <tr key={c.msisdn} className="hover:bg-slate-800/30 transition-colors">
+                  <td className="px-4 py-2.5 text-slate-600 font-mono">{i + 1}</td>
+                  <td className="px-3 py-2.5">
+                    <span className="text-slate-200 font-mono font-medium">{c.msisdn}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <span className="text-blue-400 font-semibold">{c.calls}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right">
+                    <span className="text-slate-300 font-semibold">{c.total}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full ${barColor} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-[10px] text-slate-500 w-8 text-right font-mono">{pct}%</span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -1424,7 +1370,7 @@ export default function Copilot() {
       setActiveEvidence(aiMsg);
 
       if (aiMsg.pattern_of_life) setActiveTab('pol');
-      else if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('graph');
+      else if (aiMsg.graph && aiMsg.graph.nodes?.length > 0) setActiveTab('contacts');
       else if (aiMsg.locations && aiMsg.locations.length > 0) setActiveTab('map');
       else if (aiMsg.timeline && aiMsg.timeline.length > 0) setActiveTab('timeline');
       else if (aiMsg.evidence && aiMsg.evidence.length > 0) setActiveTab('evidence');
@@ -1473,7 +1419,7 @@ export default function Copilot() {
     { key: 'evidence', label: 'Evidence', icon: FileText },
     { key: 'timeline', label: 'Timeline', icon: Clock },
     { key: 'map', label: 'Map', icon: MapPin },
-    { key: 'graph', label: 'Graph', icon: GitBranch },
+    { key: 'contacts', label: 'Contacts', icon: Users },
     { key: 'entity', label: 'Entity', icon: UserCircle },
     { key: 'pol', label: 'Pattern of Life', icon: Activity },
   ];
@@ -1742,7 +1688,7 @@ export default function Copilot() {
               {activeTab === 'evidence' && <EvidenceTab evidence={activeEvidence.evidence} />}
               {activeTab === 'timeline' && <TimelineTab events={activeEvidence.timeline} />}
               {activeTab === 'map' && <MapTab locations={activeEvidence.locations} />}
-              {activeTab === 'graph' && <GraphTab graphData={activeEvidence.graph} />}
+              {activeTab === 'contacts' && <ContactsTab graphData={activeEvidence.graph} />}
               {activeTab === 'entity' && <EntityCardTab entity={activeEvidence.entity} />}
               {activeTab === 'pol' && <PatternOfLifeTab data={activeEvidence.pattern_of_life} entity={activeEvidence.entity} />}
             </>
