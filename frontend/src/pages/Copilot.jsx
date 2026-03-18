@@ -251,35 +251,54 @@ function ToolModal({ tool, defaultMsisdn, onRun, onClose }) {
   const [days, setDays] = useState('30');
   const [towerId, setTowerId] = useState('');
   const [msisdn2, setMsisdn2] = useState('');
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
 
   const TIcon = tool.icon;
 
-  const handleRun = () => {
-    let query = '';
+  const buildQuery = () => {
     const dateStr = dateFrom ? ` from ${dateFrom}` : '';
     const dateStr2 = dateTo ? ` to ${dateTo}` : '';
     const timeRange = dateStr + dateStr2;
-
     switch (tool.id) {
-      case 'full': query = `give all info about ${msisdn}${timeRange}`; break;
-      case 'pol': query = `pattern of life for ${msisdn} last ${days} days`; break;
-      case 'contacts': query = `show contact network for ${msisdn}${timeRange}`; break;
-      case 'movement': query = `show movement trail for ${msisdn}${timeRange}`; break;
-      case 'anomalies': query = `check anomalies for ${msisdn}`; break;
-      case 'night': query = `night activity for ${msisdn}${timeRange}`; break;
-      case 'identity': query = `identity changes for ${msisdn}`; break;
-      case 'top': query = `top contacts for ${msisdn}${timeRange}`; break;
-      case 'stats': query = `activity stats for ${msisdn}`; break;
-      case 'report': query = `generate report for ${msisdn}`; break;
-      case 'search_msg': query = `search messages containing "${searchText}"${msisdn ? ' for ' + msisdn : ''}${timeRange}`; break;
-      case 'search_call': query = `search calls mentioning "${searchText}"${msisdn ? ' for ' + msisdn : ''}${timeRange}`; break;
-      case 'tower_dump': query = `tower dump for ${towerId}${timeRange}`; break;
-      case 'colocation': query = `co-location check ${msisdn} and ${msisdn2}${timeRange}`; break;
-      case 'common': query = `common contacts between ${msisdn} and ${msisdn2}`; break;
-      case 'chain': query = `call chain from ${msisdn} to ${msisdn2}`; break;
-      default: query = `${tool.label} for ${msisdn}`; break;
+      case 'full': return `give all info about ${msisdn}${timeRange}`;
+      case 'pol': return `pattern of life for ${msisdn} last ${days} days`;
+      case 'contacts': return `show contact network for ${msisdn}${timeRange}`;
+      case 'movement': return `show movement trail for ${msisdn}${timeRange}`;
+      case 'anomalies': return `check anomalies for ${msisdn}`;
+      case 'night': return `night activity for ${msisdn}${timeRange}`;
+      case 'identity': return `identity changes for ${msisdn}`;
+      case 'top': return `top contacts for ${msisdn}${timeRange}`;
+      case 'stats': return `activity stats for ${msisdn}`;
+      case 'report': return `generate report for ${msisdn}`;
+      case 'search_msg': return `search messages containing "${searchText}"${msisdn ? ' for ' + msisdn : ''}${timeRange}`;
+      case 'search_call': return `search calls mentioning "${searchText}"${msisdn ? ' for ' + msisdn : ''}${timeRange}`;
+      case 'tower_dump': return `tower dump for ${towerId}${timeRange}`;
+      case 'colocation': return `co-location check ${msisdn} and ${msisdn2}${timeRange}`;
+      case 'common': return `common contacts between ${msisdn} and ${msisdn2}`;
+      case 'chain': return `call chain from ${msisdn} to ${msisdn2}`;
+      default: return `${tool.label} for ${msisdn}`;
     }
-    onRun(query.trim());
+  };
+
+  const handleRun = async () => {
+    const query = buildQuery().trim();
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const resp = await copilotService.chat(query, null, []);
+      setResult(resp);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Analysis failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleSendToChat = () => {
+    onRun(buildQuery().trim());
     onClose();
   };
 
@@ -290,94 +309,139 @@ function ToolModal({ tool, defaultMsisdn, onRun, onClose }) {
   const needsDays = tool.id === 'pol';
   const needsDates = ['full', 'contacts', 'movement', 'night', 'top', 'search_msg', 'search_call', 'tower_dump'].includes(tool.id);
 
+  const inputCls = "w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40";
+  const labelCls = "text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-slate-800 border border-slate-700/50 rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-fade-in" onClick={e => e.stopPropagation()}>
+      <div className={`bg-slate-800 border border-slate-700/50 rounded-2xl shadow-2xl mx-4 animate-fade-in flex flex-col ${result ? 'w-full max-w-3xl max-h-[85vh]' : 'w-full max-w-md'}`} onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-700/40">
-          <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center">
-            <TIcon size={20} className="text-blue-400" />
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/40 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/15 flex items-center justify-center">
+              <TIcon size={18} className="text-blue-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-100">{tool.label}</h3>
+              <p className="text-[10px] text-slate-500">{tool.desc}</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-bold text-slate-100">{tool.label}</h3>
-            <p className="text-[11px] text-slate-500">{tool.desc}</p>
-          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-lg leading-none px-2">&times;</button>
         </div>
 
-        {/* Form */}
-        <div className="px-5 py-4 space-y-3">
-          {needsMsisdn && (
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">MSISDN</label>
-              <input type="text" value={msisdn} onChange={e => setMsisdn(e.target.value)} placeholder="+919656152900"
-                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-            </div>
-          )}
+        <div className={`flex ${result ? 'flex-row flex-1 overflow-hidden' : 'flex-col'}`}>
+          {/* Form panel */}
+          <div className={`px-5 py-4 space-y-3 shrink-0 ${result ? 'w-72 border-r border-slate-700/30 overflow-auto' : ''}`}>
+            {needsMsisdn && (
+              <div>
+                <label className={labelCls}>MSISDN</label>
+                <input type="text" value={msisdn} onChange={e => setMsisdn(e.target.value)} placeholder="+919656152900" className={inputCls} />
+              </div>
+            )}
+            {needsMsisdn2 && (
+              <div>
+                <label className={labelCls}>Second MSISDN</label>
+                <input type="text" value={msisdn2} onChange={e => setMsisdn2(e.target.value)} placeholder="+919590122159" className={inputCls} />
+              </div>
+            )}
+            {needsTower && (
+              <div>
+                <label className={labelCls}>Tower ID</label>
+                <input type="text" value={towerId} onChange={e => setTowerId(e.target.value)} placeholder="MUM-COL-000-01" className={inputCls} />
+              </div>
+            )}
+            {needsSearch && (
+              <div>
+                <label className={labelCls}>Search Text</label>
+                <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="transfer completed" className={inputCls.replace('font-mono', '')} />
+              </div>
+            )}
+            {needsDays && (
+              <div>
+                <label className={labelCls}>Period (days)</label>
+                <input type="number" value={days} onChange={e => setDays(e.target.value)} min="1" max="365" className={inputCls.replace('font-mono', '')} />
+              </div>
+            )}
+            {needsDates && (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1">From</label>
+                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-500 block mb-1">To</label>
+                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+                </div>
+              </div>
+            )}
 
-          {needsMsisdn2 && (
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Second MSISDN</label>
-              <input type="text" value={msisdn2} onChange={e => setMsisdn2(e.target.value)} placeholder="+919590122159"
-                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              <button onClick={handleRun} disabled={running}
+                className="flex-1 px-4 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-500 rounded-lg shadow-lg shadow-blue-500/20 hover:from-blue-500 hover:to-blue-400 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {running ? <><Loader2 size={12} className="animate-spin" /> Running...</> : 'Run Analysis'}
+              </button>
+              {result && (
+                <button onClick={handleSendToChat} className="px-3 py-2 text-xs text-blue-400 border border-blue-500/30 rounded-lg hover:bg-blue-500/10 transition-colors" title="Send to chat">
+                  <Send size={12} />
+                </button>
+              )}
             </div>
-          )}
+          </div>
 
-          {needsTower && (
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Tower ID</label>
-              <input type="text" value={towerId} onChange={e => setTowerId(e.target.value)} placeholder="MUM-COL-000-01"
-                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-            </div>
-          )}
+          {/* Results panel */}
+          {(result || running || error) && (
+            <div className="flex-1 overflow-auto p-4">
+              {running && (
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <Loader2 size={24} className="text-blue-400 animate-spin" />
+                  <p className="text-xs text-slate-500">Analyzing...</p>
+                </div>
+              )}
+              {error && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</div>
+              )}
+              {result && !running && (
+                <div className="space-y-3">
+                  {/* LLM Response */}
+                  <div className="text-xs text-slate-200 leading-relaxed whitespace-pre-wrap bg-slate-900/40 rounded-lg p-3 border border-slate-700/30">
+                    {formatBoldText(result.response || 'No response')}
+                  </div>
 
-          {needsSearch && (
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Search Text</label>
-              <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="transfer completed"
-                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-              {needsMsisdn && (
-                <div className="mt-2">
-                  <label className="text-[10px] text-slate-500 block mb-1">Filter by MSISDN (optional)</label>
-                  <input type="text" value={msisdn} onChange={e => setMsisdn(e.target.value)} placeholder="+919656152900 (optional)"
-                    className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+                  {/* Data summary */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {result.evidence?.length > 0 && <div className="text-center p-2 rounded-lg bg-slate-800/40"><div className="text-lg font-bold text-slate-100">{result.evidence.length}</div><div className="text-[9px] text-slate-500">Evidence</div></div>}
+                    {result.timeline?.length > 0 && <div className="text-center p-2 rounded-lg bg-slate-800/40"><div className="text-lg font-bold text-blue-400">{result.timeline.length}</div><div className="text-[9px] text-slate-500">Timeline</div></div>}
+                    {result.locations?.length > 0 && <div className="text-center p-2 rounded-lg bg-slate-800/40"><div className="text-lg font-bold text-green-400">{result.locations.length}</div><div className="text-[9px] text-slate-500">Locations</div></div>}
+                    {result.graph?.nodes?.length > 0 && <div className="text-center p-2 rounded-lg bg-slate-800/40"><div className="text-lg font-bold text-violet-400">{result.graph.nodes.length}</div><div className="text-[9px] text-slate-500">Contacts</div></div>}
+                    {result.entity && <div className="text-center p-2 rounded-lg bg-slate-800/40"><div className="text-sm font-bold text-amber-400 truncate">{result.entity.name || '--'}</div><div className="text-[9px] text-slate-500">Target</div></div>}
+                    {result.pattern_of_life && <div className="text-center p-2 rounded-lg bg-slate-800/40"><div className="text-lg font-bold text-indigo-400">{((result.pattern_of_life.routine_score || 0) * 100).toFixed(0)}%</div><div className="text-[9px] text-slate-500">Routine</div></div>}
+                  </div>
+
+                  {/* Evidence sections */}
+                  {result.evidence?.map((ev, i) => (
+                    <details key={i} className="rounded-lg border border-slate-700/30 bg-slate-800/20">
+                      <summary className="px-3 py-2 text-[11px] text-slate-300 font-semibold cursor-pointer hover:bg-slate-800/40 transition-colors flex items-center justify-between">
+                        <span>{ev.source}</span>
+                        <span className="text-[9px] text-slate-600">{Math.round(ev.relevance * 100)}%</span>
+                      </summary>
+                      <div className="px-3 py-2 border-t border-slate-700/20">
+                        <pre className="text-[10px] text-slate-400 font-mono overflow-auto max-h-48 whitespace-pre-wrap">
+                          {JSON.stringify(ev.data, null, 2)}
+                        </pre>
+                      </div>
+                    </details>
+                  ))}
+
+                  {/* Send to chat button */}
+                  <button onClick={handleSendToChat}
+                    className="w-full py-2 text-xs text-blue-400 border border-blue-500/20 rounded-lg hover:bg-blue-500/10 transition-colors flex items-center justify-center gap-2">
+                    <Send size={11} /> Open in Copilot Chat
+                  </button>
                 </div>
               )}
             </div>
           )}
-
-          {needsDays && (
-            <div>
-              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Analysis Period (days)</label>
-              <input type="number" value={days} onChange={e => setDays(e.target.value)} min="1" max="365"
-                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-            </div>
-          )}
-
-          {needsDates && (
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] text-slate-500 block mb-1">From (optional)</label>
-                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-              </div>
-              <div>
-                <label className="text-[10px] text-slate-500 block mb-1">To (optional)</label>
-                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                  className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-700/40">
-          <button onClick={onClose} className="px-4 py-2 text-xs text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-700/50 transition-colors">
-            Cancel
-          </button>
-          <button onClick={handleRun}
-            className="px-5 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-500 rounded-lg shadow-lg shadow-blue-500/20 hover:from-blue-500 hover:to-blue-400 transition-all">
-            Run Analysis
-          </button>
         </div>
       </div>
     </div>
@@ -1742,7 +1806,7 @@ export default function Copilot() {
               disabled={loading}
             />
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!input.trim() || loading}
               className="btn-primary px-3.5 py-2.5 rounded-xl"
             >
