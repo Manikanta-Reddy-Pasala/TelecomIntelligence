@@ -35,8 +35,8 @@ _INTENT_KEYWORDS = {
     "content": ["message", "sms", "text", "content", "conversation", "topic"],
     "pattern": ["anomal", "unusual", "pattern", "spike", "burst", "suspicious", "impossible"],
     # Advanced investigation tools
-    "tower_dump": ["tower dump", "tower-dump", "towerdump", "who was at tower", "phones at tower", "devices at tower"],
-    "geofence": ["geofence", "geo-fence", "geo fence", "area surveillance", "bounding box", "zone"],
+    "tower_dump": ["tower dump", "tower-dump", "towerdump", "who was at tower", "phones at tower", "devices at tower", "who was at", "phones at", "devices near"],
+    "geofence": ["geofence", "geo-fence", "geo fence", "area surveillance", "bounding box", "zone", "area", "within bounds"],
     "pattern_of_life": ["pattern of life", "daily routine", "sleep location", "work location", "routine", "behavioral", "behaviour"],
     "identity_change": ["imei change", "sim change", "sim swap", "device change", "identity change", "new device", "new sim"],
     "common_numbers": ["common number", "shared contact", "common contact", "overlap", "mutual contact"],
@@ -565,6 +565,14 @@ class CopilotService:
                         f"Identity changes: {len(id_changes['identity_changes'])} detected, "
                         f"risk: {id_changes.get('risk_assessment', 'LOW')}"
                     )
+                elif intent == "identity_change":
+                    # Phone/entity not found for this MSISDN
+                    result["evidence"].append(Evidence(
+                        source="Identity Changes (SIM/IMEI)",
+                        data={"message": f"No phone record found for MSISDN {msisdn}. Cannot check identity changes."},
+                        relevance=0.5,
+                    ))
+                    result["summary_parts"].append(f"No identity change data available for {msisdn}")
 
             # --- NIGHT ACTIVITY ---
             if intent in ("night_activity",):
@@ -644,6 +652,50 @@ class CopilotService:
                     result["evidence"].append(Evidence(source="Activity Statistics", data=stats, relevance=0.85))
                 result["has_data"] = True
                 result["summary_parts"].append("Full investigation report generated with all sections")
+
+        # === ALWAYS populate timeline if we have msisdn and timeline is empty ===
+        if msisdn and not result["timeline"] and intent not in ("search",):
+            calls = await self._fetch_calls(db, msisdn, limit=30, dt_from=dt_from, dt_to=dt_to)
+            for c in calls:
+                other = c.callee_msisdn if c.caller_msisdn == msisdn else c.caller_msisdn
+                direction = "outgoing" if c.caller_msisdn == msisdn else "incoming"
+                transcript_preview = f" | {c.transcript[:50]}..." if c.transcript else ""
+                result["timeline"].append({
+                    "type": "call", "timestamp": c.start_time.isoformat(),
+                    "from": c.caller_msisdn, "to": c.callee_msisdn,
+                    "duration": c.duration_seconds, "status": c.status,
+                    "transcript": c.transcript,
+                    "description": f"{direction.title()} call {'to' if direction == 'outgoing' else 'from'} {other} ({c.duration_seconds}s){transcript_preview}",
+                })
+            messages = await self._fetch_messages(db, msisdn, limit=20, dt_from=dt_from, dt_to=dt_to)
+            for m in messages:
+                direction = "sent" if m.sender_msisdn == msisdn else "received"
+                other = m.receiver_msisdn if m.sender_msisdn == msisdn else m.sender_msisdn
+                result["timeline"].append({
+                    "type": "sms", "timestamp": m.timestamp.isoformat(),
+                    "from": m.sender_msisdn, "to": m.receiver_msisdn,
+                    "description": f"SMS {direction} {'to' if direction == 'sent' else 'from'} {other}",
+                    "preview": m.content_preview,
+                })
+            result["timeline"].sort(key=lambda x: x["timestamp"], reverse=True)
+
+        # === ALWAYS populate graph if we have msisdn and graph is empty ===
+        if msisdn and not result["graph"] and intent not in ("search",):
+            contacts = await GraphAnalyticsService.get_contact_network(db, msisdn, dt_from, dt_to)
+            if contacts:
+                top_contacts = contacts[:20]
+                nodes = [{"id": msisdn, "msisdn": msisdn, "label": msisdn[-6:], "is_target": True, "weight": 10}]
+                edges = []
+                for c in top_contacts:
+                    total = c.get("outgoing_calls", 0) + c.get("incoming_calls", 0) + c.get("outgoing_messages", 0) + c.get("incoming_messages", 0)
+                    nodes.append({
+                        "id": c["msisdn"], "msisdn": c["msisdn"],
+                        "label": c["msisdn"][-6:], "is_target": False,
+                        "weight": total,
+                        "call_count": c.get("outgoing_calls", 0) + c.get("incoming_calls", 0),
+                    })
+                    edges.append({"source": msisdn, "target": c["msisdn"], "weight": total})
+                result["graph"] = {"nodes": nodes, "edges": edges}
 
         # === SEARCH (works with or without MSISDN) ===
         if intent == "search":
