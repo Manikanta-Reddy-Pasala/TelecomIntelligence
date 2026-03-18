@@ -243,52 +243,202 @@ function RecordTable({ records, columns }) {
   );
 }
 
+function ToolModal({ tool, defaultMsisdn, onRun, onClose }) {
+  const [msisdn, setMsisdn] = useState(defaultMsisdn || '');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [days, setDays] = useState('30');
+  const [towerId, setTowerId] = useState('');
+  const [msisdn2, setMsisdn2] = useState('');
+
+  const TIcon = tool.icon;
+
+  const handleRun = () => {
+    let query = '';
+    const dateStr = dateFrom ? ` from ${dateFrom}` : '';
+    const dateStr2 = dateTo ? ` to ${dateTo}` : '';
+    const timeRange = dateStr + dateStr2;
+
+    switch (tool.id) {
+      case 'full': query = `give all info about ${msisdn}${timeRange}`; break;
+      case 'pol': query = `pattern of life for ${msisdn} last ${days} days`; break;
+      case 'contacts': query = `show contact network for ${msisdn}${timeRange}`; break;
+      case 'movement': query = `show movement trail for ${msisdn}${timeRange}`; break;
+      case 'anomalies': query = `check anomalies for ${msisdn}`; break;
+      case 'night': query = `night activity for ${msisdn}${timeRange}`; break;
+      case 'identity': query = `identity changes for ${msisdn}`; break;
+      case 'top': query = `top contacts for ${msisdn}${timeRange}`; break;
+      case 'stats': query = `activity stats for ${msisdn}`; break;
+      case 'report': query = `generate report for ${msisdn}`; break;
+      case 'search_msg': query = `search messages containing "${searchText}"${msisdn ? ' for ' + msisdn : ''}${timeRange}`; break;
+      case 'search_call': query = `search calls mentioning "${searchText}"${msisdn ? ' for ' + msisdn : ''}${timeRange}`; break;
+      case 'tower_dump': query = `tower dump for ${towerId}${timeRange}`; break;
+      case 'colocation': query = `co-location check ${msisdn} and ${msisdn2}${timeRange}`; break;
+      case 'common': query = `common contacts between ${msisdn} and ${msisdn2}`; break;
+      case 'chain': query = `call chain from ${msisdn} to ${msisdn2}`; break;
+      default: query = `${tool.label} for ${msisdn}`; break;
+    }
+    onRun(query.trim());
+    onClose();
+  };
+
+  const needsMsisdn = !['search_msg', 'search_call', 'tower_dump'].includes(tool.id);
+  const needsMsisdn2 = ['colocation', 'common', 'chain'].includes(tool.id);
+  const needsSearch = ['search_msg', 'search_call'].includes(tool.id);
+  const needsTower = tool.id === 'tower_dump';
+  const needsDays = tool.id === 'pol';
+  const needsDates = ['full', 'contacts', 'movement', 'night', 'top', 'search_msg', 'search_call', 'tower_dump'].includes(tool.id);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-800 border border-slate-700/50 rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-fade-in" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-700/40">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center">
+            <TIcon size={20} className="text-blue-400" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-100">{tool.label}</h3>
+            <p className="text-[11px] text-slate-500">{tool.desc}</p>
+          </div>
+        </div>
+
+        {/* Form */}
+        <div className="px-5 py-4 space-y-3">
+          {needsMsisdn && (
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">MSISDN</label>
+              <input type="text" value={msisdn} onChange={e => setMsisdn(e.target.value)} placeholder="+919656152900"
+                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+            </div>
+          )}
+
+          {needsMsisdn2 && (
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Second MSISDN</label>
+              <input type="text" value={msisdn2} onChange={e => setMsisdn2(e.target.value)} placeholder="+919590122159"
+                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+            </div>
+          )}
+
+          {needsTower && (
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Tower ID</label>
+              <input type="text" value={towerId} onChange={e => setTowerId(e.target.value)} placeholder="MUM-COL-000-01"
+                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+            </div>
+          )}
+
+          {needsSearch && (
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Search Text</label>
+              <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="transfer completed"
+                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+              {needsMsisdn && (
+                <div className="mt-2">
+                  <label className="text-[10px] text-slate-500 block mb-1">Filter by MSISDN (optional)</label>
+                  <input type="text" value={msisdn} onChange={e => setMsisdn(e.target.value)} placeholder="+919656152900 (optional)"
+                    className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-1.5 text-xs text-slate-300 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {needsDays && (
+            <div>
+              <label className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold block mb-1">Analysis Period (days)</label>
+              <input type="number" value={days} onChange={e => setDays(e.target.value)} min="1" max="365"
+                className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+            </div>
+          )}
+
+          {needsDates && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-slate-500 block mb-1">From (optional)</label>
+                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                  className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-500 block mb-1">To (optional)</label>
+                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                  className="w-full bg-slate-900/80 border border-slate-600/40 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-700/40">
+          <button onClick={onClose} className="px-4 py-2 text-xs text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-700/50 transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleRun}
+            className="px-5 py-2 text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-500 rounded-lg shadow-lg shadow-blue-500/20 hover:from-blue-500 hover:to-blue-400 transition-all">
+            Run Analysis
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ToolsTab({ evidence, entity, onQuery }) {
+  const [activeTool, setActiveTool] = useState(null);
   const msisdn = entity?.msisdn || '';
 
   const tools = [
-    { label: 'Full Investigation', icon: Search, query: `give all info about ${msisdn}`, color: 'blue', desc: 'Complete analysis with all data' },
-    { label: 'Pattern of Life', icon: Clock, query: `pattern of life for ${msisdn}`, color: 'indigo', desc: 'Sleep/work locations, daily routine' },
-    { label: 'Contact Network', icon: Users, query: `show contact network for ${msisdn}`, color: 'violet', desc: 'Who they communicate with' },
-    { label: 'Movement Trail', icon: MapPin, query: `show movement trail for ${msisdn}`, color: 'green', desc: 'Tower-by-tower location history' },
-    { label: 'Anomaly Check', icon: AlertTriangle, query: `check anomalies for ${msisdn}`, color: 'red', desc: 'Impossible travel, bursts, SIM swaps' },
-    { label: 'Night Activity', icon: Eye, query: `night activity for ${msisdn}`, color: 'purple', desc: 'Calls & messages 11PM-5AM' },
-    { label: 'Identity Changes', icon: Shield, query: `identity changes for ${msisdn}`, color: 'orange', desc: 'SIM/IMEI swap detection' },
-    { label: 'Top Contacts', icon: Phone, query: `top contacts for ${msisdn}`, color: 'cyan', desc: 'Most frequent contacts ranked' },
-    { label: 'Activity Stats', icon: Activity, query: `activity stats for ${msisdn}`, color: 'teal', desc: 'Call/message counts, peak hours' },
-    { label: 'Generate Report', icon: FileText, query: `generate report for ${msisdn}`, color: 'amber', desc: 'Full dossier with all sections' },
-    { label: 'Search Messages', icon: MessageSquare, query: `search messages containing `, color: 'pink', desc: 'Full-text search across SMS & calls', noMsisdn: true },
-    { label: 'Search Calls', icon: Radio, query: `search calls mentioning `, color: 'rose', desc: 'Search call transcripts', noMsisdn: true },
+    { id: 'full', label: 'Full Investigation', icon: Search, desc: 'Complete analysis with all data' },
+    { id: 'pol', label: 'Pattern of Life', icon: Clock, desc: 'Sleep/work locations, daily routine' },
+    { id: 'contacts', label: 'Contact Network', icon: Users, desc: 'Who they communicate with' },
+    { id: 'movement', label: 'Movement Trail', icon: MapPin, desc: 'Tower-by-tower location history' },
+    { id: 'anomalies', label: 'Anomaly Check', icon: AlertTriangle, desc: 'Impossible travel, bursts, SIM swaps' },
+    { id: 'night', label: 'Night Activity', icon: Eye, desc: 'Calls & messages 11PM-5AM' },
+    { id: 'identity', label: 'Identity Changes', icon: Shield, desc: 'SIM/IMEI swap detection' },
+    { id: 'top', label: 'Top Contacts', icon: Phone, desc: 'Most frequent contacts ranked' },
+    { id: 'stats', label: 'Activity Stats', icon: Activity, desc: 'Call/message counts, peak hours' },
+    { id: 'report', label: 'Generate Report', icon: FileText, desc: 'Full dossier with all sections' },
+    { id: 'search_msg', label: 'Search Messages', icon: MessageSquare, desc: 'Full-text search SMS content' },
+    { id: 'search_call', label: 'Search Calls', icon: Radio, desc: 'Search call transcripts' },
+    { id: 'tower_dump', label: 'Tower Dump', icon: Radio, desc: 'All phones at a specific tower' },
+    { id: 'colocation', label: 'Co-location', icon: MapPin, desc: 'Were two phones at same tower?' },
+    { id: 'common', label: 'Common Contacts', icon: Users, desc: 'Shared contacts between two numbers' },
+    { id: 'chain', label: 'Call Chain', icon: GitBranch, desc: 'Connection path between two numbers' },
   ];
 
   return (
     <div className="overflow-auto max-h-[calc(100vh-260px)] p-1">
+      {/* Active target */}
+      {msisdn && (
+        <div className="mb-3 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20 flex items-center justify-between">
+          <div>
+            <div className="text-[10px] text-blue-400/70 uppercase tracking-wider font-semibold">Active Target</div>
+            <div className="text-sm font-mono text-blue-300">{msisdn}
+              {entity?.name && <span className="text-slate-400 font-sans ml-2 text-xs">{entity.name}</span>}
+            </div>
+          </div>
+          {entity?.carrier && <span className="text-[10px] text-slate-500 bg-slate-800/50 px-2 py-0.5 rounded">{entity.carrier}</span>}
+        </div>
+      )}
+
       {/* Tools Grid */}
-      <div className="grid grid-cols-2 gap-2.5 mb-4">
-        {tools.map(({ label, icon: TIcon, query, color, desc, noMsisdn }) => {
-          const disabled = !noMsisdn && !msisdn;
+      <div className="grid grid-cols-2 gap-2">
+        {tools.map((tool) => {
+          const TIcon = tool.icon;
           return (
             <button
-              key={label}
-              onClick={() => {
-                if (!disabled) {
-                  onQuery(query);
-                }
-              }}
-              disabled={disabled}
-              className={`text-left p-3.5 rounded-xl border transition-all duration-200 group ${
-                disabled
-                  ? 'border-slate-800/30 bg-slate-800/10 opacity-40 cursor-not-allowed'
-                  : `border-${color}-500/20 bg-${color}-500/5 hover:bg-${color}-500/10 hover:border-${color}-500/30 cursor-pointer`
-              }`}
+              key={tool.id}
+              onClick={() => setActiveTool(tool)}
+              className="text-left p-3 rounded-xl border border-slate-700/30 bg-slate-800/20 hover:bg-slate-800/50 hover:border-slate-600/50 transition-all duration-200 group"
             >
               <div className="flex items-center gap-2.5">
-                <div className={`w-8 h-8 rounded-lg bg-${color}-500/15 flex items-center justify-center shrink-0`}>
-                  <TIcon size={15} className={`text-${color}-400`} />
+                <div className="w-8 h-8 rounded-lg bg-slate-700/30 group-hover:bg-blue-500/15 flex items-center justify-center shrink-0 transition-colors">
+                  <TIcon size={14} className="text-slate-400 group-hover:text-blue-400 transition-colors" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold text-slate-200 group-hover:text-white transition-colors">{label}</div>
-                  <div className="text-[10px] text-slate-500 truncate">{desc}</div>
+                  <div className="text-[11px] font-semibold text-slate-200 group-hover:text-white transition-colors">{tool.label}</div>
+                  <div className="text-[9px] text-slate-500 truncate">{tool.desc}</div>
                 </div>
               </div>
             </button>
@@ -296,43 +446,31 @@ function ToolsTab({ evidence, entity, onQuery }) {
         })}
       </div>
 
-      {/* Current MSISDN indicator */}
-      {msisdn && (
-        <div className="mb-4 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/20">
-          <div className="text-[10px] text-blue-400/70 uppercase tracking-wider font-semibold">Active Target</div>
-          <div className="text-sm font-mono text-blue-300 mt-0.5">{msisdn}</div>
-          {entity?.name && <div className="text-xs text-slate-400">{entity.name} | {entity.carrier || '--'}</div>}
-        </div>
-      )}
-
-      {/* Evidence summary cards */}
+      {/* Evidence summary */}
       {evidence && evidence.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold px-1">Data Retrieved</div>
+        <div className="mt-3 space-y-1">
+          <div className="text-[9px] text-slate-500 uppercase tracking-wider font-semibold px-1">Last Query Results</div>
           {evidence.map((item, i) => {
             const d = item.data || {};
             const count = d.total || d.total_contacts || d.total_anomalies || d.total_messages || d.total_calls || d.total_points || '';
             return (
-              <div key={i} className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-800/30 border border-slate-700/20">
-                <span className="text-[11px] text-slate-300">{item.source}</span>
-                <div className="flex items-center gap-2">
-                  {count && <span className="text-[10px] text-slate-500">{count} items</span>}
-                  <div className="w-12 h-1 bg-slate-700/50 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.round(item.relevance * 100)}%` }} />
-                  </div>
-                </div>
+              <div key={i} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-800/20 text-[10px]">
+                <span className="text-slate-400">{item.source}</span>
+                {count && <span className="text-slate-500">{count}</span>}
               </div>
             );
           })}
         </div>
       )}
 
-      {!msisdn && !evidence?.length && (
-        <div className="text-center py-8">
-          <Search size={32} className="mx-auto text-slate-700 mb-3" />
-          <p className="text-sm text-slate-500">Ask a question to activate investigation tools</p>
-          <p className="text-[11px] text-slate-600 mt-1">Tools will auto-populate with the detected MSISDN</p>
-        </div>
+      {/* Tool Modal */}
+      {activeTool && (
+        <ToolModal
+          tool={activeTool}
+          defaultMsisdn={msisdn}
+          onRun={(query) => onQuery(query)}
+          onClose={() => setActiveTool(null)}
+        />
       )}
     </div>
   );
