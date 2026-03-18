@@ -37,9 +37,12 @@ case "${1:-start}" in
     echo "Waiting for PostgreSQL..."
     sleep 10
 
-    # Pull tinyllama model
-    echo "Pulling tinyllama model (this may take a few minutes)..."
+    # Pull base model and create custom TIAC model
+    echo "Pulling tinyllama base model..."
     ssh $REMOTE_HOST "docker exec tiac_ollama ollama pull tinyllama"
+    echo "Building custom TIAC analyst model..."
+    ssh $REMOTE_HOST "docker cp $REMOTE_DIR/backend/ollama/Modelfile tiac_ollama:/tmp/Modelfile"
+    ssh $REMOTE_HOST "docker exec tiac_ollama ollama create tiac-analyst -f /tmp/Modelfile"
 
     # Run seed data
     echo "Seeding database..."
@@ -81,6 +84,14 @@ case "${1:-start}" in
     MODEL="${2:-tinyllama}"
     echo "Pulling model: $MODEL"
     ssh $REMOTE_HOST "docker exec tiac_ollama ollama pull $MODEL"
+    ;;
+
+  build-model)
+    echo "Building custom TIAC analyst model..."
+    rsync -avz "$PROJECT_DIR/backend/ollama/" "$REMOTE_HOST:$REMOTE_DIR/backend/ollama/"
+    ssh $REMOTE_HOST "docker cp $REMOTE_DIR/backend/ollama/Modelfile tiac_ollama:/tmp/Modelfile"
+    ssh $REMOTE_HOST "docker exec tiac_ollama ollama create tiac-analyst -f /tmp/Modelfile"
+    echo "Model 'tiac-analyst' created. Set OLLAMA_MODEL=tiac-analyst in docker-compose.yml"
     ;;
 
   sync)

@@ -30,7 +30,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 6G
 
   backend:
     build: ./backend
@@ -38,7 +38,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://tiac:tiac123@postgres:5432/tiac
       OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: tinyllama
+      OLLAMA_MODEL: tiac-analyst
       SECRET_KEY: tiac-secret-key-change-in-production-2024
     ports:
       - "8000:8000"

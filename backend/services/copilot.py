@@ -341,7 +341,7 @@ class CopilotService:
 
                     # Find inter-contact edges (who among the top contacts also talk to each other)
                     inter_contacts_checked = set()
-                    for c in top_contacts[:10]:  # Check top 10 for cross-links
+                    for c in top_contacts[:5]:  # Check top 5 for cross-links (balanced speed vs detail)
                         c_contacts = await GraphAnalyticsService.get_contact_network(db, c["msisdn"])
                         for cc in c_contacts:
                             if cc["msisdn"] in top_msisdns and cc["msisdn"] != msisdn:
@@ -527,16 +527,16 @@ class CopilotService:
             if risk and risk > 0.7:
                 facts += f"\n- HIGH RISK - Risk score: {risk:.0%}"
 
-        # Ask LLM to provide analyst-grade summary (with 15s timeout)
+        # Ask LLM to provide analyst-grade summary (with 10s timeout)
+        # Use the structured format that matches the custom tiac-analyst model
         prompt = (
-            f"You are a telecom intelligence analyst. A user asked: \"{message}\"\n\n"
-            f"Here are the facts from the database:\n{facts}\n\n"
-            f"Write a brief analyst summary (3-5 sentences). Be professional, factual. "
-            f"Highlight anything suspicious or noteworthy. Reference specific numbers."
+            f"Query: {message}\n"
+            f"Facts: {'. '.join(summary_parts)}\n"
+            f"Response:"
         )
 
         try:
-            llm_text = await asyncio.wait_for(self._call_ollama(prompt), timeout=15.0)
+            llm_text = await asyncio.wait_for(self._call_ollama(prompt), timeout=10.0)
             if llm_text and len(llm_text) > 30 and "unavailable" not in llm_text.lower():
                 return header + llm_text.strip()
         except asyncio.TimeoutError:
