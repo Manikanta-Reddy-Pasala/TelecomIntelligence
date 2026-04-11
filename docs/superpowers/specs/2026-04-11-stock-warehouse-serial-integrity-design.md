@@ -1,9 +1,35 @@
 # Stock / Warehouse / Serial Integrity — Audit, Write-Path Fixes, Correction
 
 Date: 2026-04-11
-Status: IN PROGRESS
+Status: PHASE 3 APPROVED — Phase 4 execution pending confirmation
 Scope: All eligible businesses (has non-deleted warehouse AND at least one symptom)
-Gate: Human-in-the-loop XLSX review before any write
+Gate: Human-in-the-loop XLSX review before any write — XLSX reviewed 2026-04-11
+
+## Decisions (2026-04-11)
+
+1. **Phase 6 (Stock Correction UI) — DESCOPED.** Extend the existing scheduler instead.
+2. **Buy Back fix (RC10) — DEFERRED.** 12 products, flag-only in audit/scheduler. No write-path change.
+3. **Job Work In fix — DEFERRED.** 31 products, flag-only. No write-path change.
+4. **Restaurant-gate inversion — PICK UP THE DRAFT** from `stock-bugs.md` (9 locations, uncommitted) and ship. Primary cause of the 347-business scale; must ship BEFORE the correction run.
+5. **Empty `serialData[i].warehouseData` — LEAVE EMPTY, FLAG.** Scheduler does not auto-assign. Manual review required for these serials.
+6. **No new reconcile endpoint.** Extend existing `UpdateStockDetailsRequest` to carry `warehouseDetails`, and extend `MongoDbService.updateProductStockQty` to apply them.
+
+## Final audit result (Phase 1b v3, 2026-04-11 15:06)
+
+| Metric | Value |
+|---|---:|
+| Eligible businesses | 347 |
+| Products examined | 93,076 |
+| Products with qty mismatch | 3,621 |
+| Products with warehouse mismatch | 14,495 |
+| Products with serial mismatch | 1,308 |
+| Buy Back products (flagged, excluded) | 12 |
+| Job Work products (flagged, excluded) | 31 |
+| Blank-warehouse-txn products | 7,892 |
+| Absolute qty delta | 314,958 units |
+
+XLSX: `/tmp/stock-audit/stock_audit_20260411_1506.xlsx`
+Audit script: `/tmp/stock-audit/audit.js` (mongosh, runs in pod via `kubectl exec`)
 
 ## 1. Problem statement
 
@@ -108,20 +134,83 @@ Each commit: QA deploy, smoke test, tag for prod per release workflow.
 
 ### Phase 5 — One-shot correction job (dryRun → live)
 
-Extend `Scheduler/.../ProductStockRepository.java` with `productStockWithWarehouseAndSerial()`:
+**Current state:** `Scheduler/.../ProductStockRepository.java` already aggregates `productTxn` per product, already writes `DailyProductStockScheduler` records, and already has the correct restaurant gate (2026-04-03 draft). **Gaps vs what Phase 5 needs:**
 
-- Re-reads productTxn (same way) + groups by `(productId, warehouseData)` and by `(productId, batchNumber, warehouseData)`.
-- For serial products, rebuilds `warehouseDetails` from `count(serialData.warehouseData=W where not soldStatus)`.
-- Writes extended records to `DailyProductStockScheduler` capturing before/after for all three dimensions.
-- Calls MongoDbService via a new endpoint `POST /v1/core/db/product/reconcileStockAndWarehouse` that atomically updates `maxQuantity`, `availableQuantity`, `warehouseDetails`, and (optionally) `serialData[i].warehouseData` per product.
-- Modes:
-  - `dryRun=true` (default) — re-emits the XLSX (same format as Phase 1) with proposed changes. Compare to Phase 1 XLSX; deltas indicate code bugs, not data bugs.
-  - `dryRun=false` — performs the update.
-- Order of operations: Phase 4 must be in prod FIRST (so newly-created data is clean), THEN the one-shot correction repairs historical damage.
+- Line 248: `double availableQty = maxQty * 2` — hardcoded, same bug as RC1/RC2. The scheduler was *perpetuating* the `*2` corruption on every nightly run for restaurant products.
+- `UpdateStockDetailsRequest` (Scheduler copy `Scheduler/.../UpdateStockDetailsRequest.java`) has fields `maxQuantity, availableQuantity, batchData, freeQty, productId, businessId` — **no `warehouseDetails`, no `serialWarehouseMap`**. So the correction RPC can't carry warehouse data to MongoDbService even if we wanted it to.
+- `MongoDbProductTxnFilterRequest` currently streams productTxn by businessId only — aggregation is done client-side. To add per-warehouse grouping we either (a) keep client-side and add new maps, or (b) push the aggregation into MongoDbService via a new endpoint. Option (a) is simpler and matches existing style.
 
-### Phase 6 — Stock correction UI (deferred)
+**New method** `productStockWithWarehouseAndSerial()`:
 
-PosAdmin page with 4 tabs matching audit sheets, per-row approve checkboxes, "run correction" scoped to approved rows. Deferred until Phase 5 is stable.
+1. Pull `productTxn` paginated (existing `getTransactionQty` pattern).
+2. Build four maps:
+   - `product_total[pid] → signed qty` (existing)
+   - `product_wh[(pid, whId)] → signed qty` (NEW — non-serial warehouse rollup)
+   - `product_batch[pid][batchNo] → signed qty` (existing)
+   - `products_with_buyback: set[pid]` (NEW — flag for manual review)
+3. Pull `businessProducts` paginated (existing).
+4. For each product:
+   - If serial: rebuild `expectedWarehouseDetails` from `count(serialData.warehouseData=W where not soldStatus)`.
+   - If non-serial: rebuild from `product_wh[(pid, W)]` map.
+   - Compute `expectedMaxQty = product_total[pid] + openingStockQty`.
+   - Compute `expectedAvailableQty = (isRestaurant && restaurantQtyEnabled) ? expectedMaxQty * 2 : expectedMaxQty` — NOT a blind `*2`.
+   - Skip correction if product is in `products_with_buyback` (flag for manual review).
+5. Build a `ReconcileStockAndWarehouseRequest` and call new MongoDbService endpoint.
+
+**New model** `ReconcileStockAndWarehouseRequest` (`oneshell-commons-model` or Scheduler copy):
+
+```java
+public class ReconcileStockAndWarehouseRequest {
+    private String businessId;
+    private String businessCity;
+    private String productId;
+    private double maxQuantity;
+    private double availableQuantity;
+    private List<BatchData> batchData;
+    private List<WarehouseData> warehouseDetails;   // NEW
+    private boolean dryRun;                         // NEW
+    private long updatedAt;
+}
+```
+
+**New MongoDbService endpoint** `POST /v1/core/db/product/reconcileStockAndWarehouse`:
+
+- Path: `MongoDbService/.../ProductController.java` + delegate in `ProductService/Impl`.
+- Behavior: one `findAndModify` per product setting `maxQuantity, availableQuantity, batchData, warehouseDetails, updatedAt` atomically. No per-field increment — this is a reconciliation, not a delta update. Does not touch `serialData` (serial's `warehouseData` is already correct per the Phase 0 decision to use it as truth).
+- NO restaurant gate — this is a repair endpoint called with already-correct expected values.
+- Returns `{beforeMaxQty, afterMaxQty, beforeWarehouseDetails, afterWarehouseDetails}` for audit trail.
+
+**Extend `DailyProductStockScheduler` model** to capture before/after for warehouseDetails:
+
+```java
+public class DailyProductStockScheduler {
+    // existing: businessId, productId, actualQty, correctedQty, date
+    private List<WarehouseData> actualWarehouseDetails;     // NEW
+    private List<WarehouseData> correctedWarehouseDetails;  // NEW
+    private boolean dryRun;                                 // NEW
+    private String correctionReason;                        // NEW (qty|warehouse|both)
+}
+```
+
+**Modes** (config flag in `application.yaml`):
+
+- `stock.correction.mode=dryRun` (default) — computes proposed changes, writes `DailyProductStockScheduler` records with `dryRun=true`, **does NOT call the reconcile endpoint**, re-emits the Phase 1 XLSX so the user can diff.
+- `stock.correction.mode=live` — also calls the reconcile endpoint.
+- `stock.correction.scope=businessId:b117...` — restrict to one business for pilot runs.
+
+**Rollout order:**
+
+1. Phase 4 ships all write-path fixes to prod (QA → tag → prod).
+2. Phase 5 `dryRun=true` runs against prod for all 347 businesses.
+3. The dryRun XLSX is compared to the Phase 1 XLSX — they should be **identical** (same data snapshot, same expected values). Any delta indicates a bug in the correction code, NOT a data bug.
+4. User approves specific businesses (via `stock.correction.scope`).
+5. `dryRun=false` runs for those businesses.
+6. Re-run Phase 1 audit; verify zero remaining mismatches (except Buy Back flagged products).
+7. Broaden to remaining businesses.
+
+### Phase 6 — Stock correction UI (DESCOPED 2026-04-11)
+
+Not needed — scheduler correction + audit XLSX are sufficient.
 
 ## 5. Risks & mitigations
 
