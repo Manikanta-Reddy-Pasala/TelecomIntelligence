@@ -1,35 +1,98 @@
 # Stock / Warehouse / Serial Integrity — Audit, Write-Path Fixes, Correction
 
 Date: 2026-04-11
-Status: PHASE 3 APPROVED — Phase 4 execution pending confirmation
+Status: **PHASE 4 + 5 SHIPPED TO QA.** Prod tags pending user verification.
 Scope: All eligible businesses (has non-deleted warehouse AND at least one symptom)
 Gate: Human-in-the-loop XLSX review before any write — XLSX reviewed 2026-04-11
 
-## Decisions (2026-04-11)
+## Decisions (evolved through 2026-04-11)
 
 1. **Phase 6 (Stock Correction UI) — DESCOPED.** Extend the existing scheduler instead.
-2. **Buy Back fix (RC10) — DEFERRED.** 12 products, flag-only in audit/scheduler. No write-path change.
-3. **Job Work In fix — DEFERRED.** 31 products, flag-only. No write-path change.
-4. **Restaurant-gate inversion — PICK UP THE DRAFT** from `stock-bugs.md` (9 locations, uncommitted) and ship. Primary cause of the 347-business scale; must ship BEFORE the correction run.
-5. **Empty `serialData[i].warehouseData` — LEAVE EMPTY, FLAG.** Scheduler does not auto-assign. Manual review required for these serials.
-6. **No new reconcile endpoint.** Extend existing `UpdateStockDetailsRequest` to carry `warehouseDetails`, and extend `MongoDbService.updateProductStockQty` to apply them.
+2. **Buy Back fix (RC10) — DEFERRED write-path fix; AUTO-SKIP in correction.** 12 products with Buy Back txn history are in `skipProductsQty` + `skipProductsWarehouse` sets — scheduler does not auto-correct them. Flag only. Manual review required.
+3. **Job Work In fix — INCLUDED IN SIGN TABLE AS +1.** 31 products. Per `businessproducts-correction.md` memory, Job Work In is a legitimate stock-in txn type. Products still get flagged for visibility because warehouseData is rare on these rows (~0.05%), so warehouse rollup may be partial.
+4. **Restaurant-gate inversion — SHIPPED** (MongoDbService commits `4e24d37b`, `4170458c`). Primary cause of the 347-business scale is now fixed at write time.
+5. **Empty `serialData[i].warehouseData` — AUTO-ASSIGN YES.** Priority: another serial on same product → first whId in current warehouseDetails → first warehouse in business master → leave empty. v4 audit has 1,918 serials getting auto-assigned across 703 products.
+6. **No new reconcile endpoint.** `UpdateStockDetailsRequest` extended with optional `warehouseDetails` passthrough (MongoDbService commit `9d68f4f8`).
+7. **Option C warehouse rebuild.** `expectedWhMap[W] = max(txnSum[W], unsoldSerialCount[W])`. Handles pure-serial, mixed-stock, and non-serial products uniformly.
+8. **Cross-biz leak filter.** After Option C, drop any warehouseId not in the business's own warehouse master. Products with pure sync contamination rebuild to `[]`.
+9. **Opening Stock per-warehouse attribution.** Distribute `product.openingStockQty` across warehouses using the `Opening Stock` txn's `warehouseData` field when present; remainder to first-seen-txn warehouse.
+10. **qty > 0 filter.** After Option C + cross-biz filter, drop any `expectedWhMap[W] ≤ 0` from the rebuild. No negative warehouse qty proposed.
+11. **`availableQuantity = maxQuantity`** for non-restaurant businesses. For restaurant + `restaurantQtyEnabled=true`, `= maxQuantity * 2`. The prior "2x quirk is deliberate" claim in `businessproducts-correction.md` was wrong — it's been corrected.
 
-## Final audit result (Phase 1b v3, 2026-04-11 15:06)
+## Final audit result (Phase 1b v4, 2026-04-11 18:23)
 
-| Metric | Value |
+After applying decisions 7-11, the warehouse mismatch count dropped by **68%** vs v3 — most of v3's warehouse "mismatches" were cross-biz contamination and negative-qty noise.
+
+| Metric | v3 (16:43) | **v4 (18:23)** |
+|---|---:|---:|
+| Eligible businesses | 347 | **348** |
+| Products examined | 93,157 | **93,363** |
+| Products with qty mismatch | 3,621 | 3,638 |
+| Products with warehouse mismatch | 14,495 | **4,796** ↓68% |
+| Products with serial mismatch | 1,307 | 835 |
+| Buy Back products (flagged) | 12 | 12 |
+| Job Work products (flagged) | 31 | 31 |
+| Blank-warehouse-txn products | 7,917 | 7,926 |
+| Absolute qty delta | 314,958 | 314,903 |
+| Distinct products to correct | 15,592 | **5,978** |
+| Invariant violations | 13,842 | **3,981** ↓71% |
+
+**v4 XLSX:** `/tmp/stock-audit/stock_audit_20260411_1823.xlsx`
+**Audit script:** `/tmp/stock-audit/audit.js` (mongosh, runs in pod via `kubectl exec prod-cluster-mongos-0 -- mongosh --file /tmp/audit.js`)
+**XLSX builder:** `/tmp/stock-audit/build_xlsx.py` (Python, reads NDJSON → openpyxl)
+
+### v4 sheet inventory
+
+| Sheet | Rows | Purpose |
+|---|---:|---|
+| `products_to_correct` | 5,978 | Per-product correction plan — start here |
+| `product_qty_mismatch` | 3,602 | Qty detail (filters out Buy Back / Job Work flagged rows) |
+| `product_warehouse_mismatch` | 5,105 | Warehouse detail (multi-row per product) |
+| `serial_warehouse_mismatch` | 2,279 | Serial detail + proposedWarehouseId for auto-assign |
+| `invariant_violations` | 3,981 | Internal inconsistency diagnostic |
+| `summary` | 352 | Per-business rollup |
+
+### v4 willAutoCorrect breakdown (from `products_to_correct`)
+
+| willAutoCorrect value | Products |
 |---|---:|
-| Eligible businesses | 347 |
-| Products examined | 93,076 |
-| Products with qty mismatch | 3,621 |
-| Products with warehouse mismatch | 14,495 |
-| Products with serial mismatch | 1,308 |
-| Buy Back products (flagged, excluded) | 12 |
-| Job Work products (flagged, excluded) | 31 |
-| Blank-warehouse-txn products | 7,892 |
-| Absolute qty delta | 314,958 units |
+| `WAREHOUSE` only | 3,395 |
+| `QTY` only | 2,103 |
+| `QTY + WAREHOUSE` | 412 |
+| `(none)` — serial issue only (flag-only) | 38 |
+| `SKIPPED (flagged)` — Buy Back / Job Work / BlankWhTxn | 30 |
+| **Total distinct products** | **5,978** |
 
-XLSX: `/tmp/stock-audit/stock_audit_20260411_1506.xlsx`
-Audit script: `/tmp/stock-audit/audit.js` (mongosh, runs in pod via `kubectl exec`)
+### Empty-serial auto-assign breakdown (from `serial_warehouse_mismatch`)
+
+- **1,918 serials** across **703 products** get auto-assigned to a default warehouse
+- **1,690 serials** have no fallback target → stay flagged for manual review
+- Default warehouse spread across many businesses (top 5: 154/154/139/128/118 serials)
+
+## Phase 4 + 5 commits (all on master, QA auto-deploying, none prod-tagged)
+
+| # | Service | Commit | Purpose |
+|---|---|---|---|
+| 1 | MongoDbService | `4e24d37b` | Restaurant-gate + `*2` fix on sale/purchase/transfer hot paths (RC1–RC5) |
+| 2 | MongoDbService | `4170458c` | Same on opening-stock/manufacture/raw-material (RC6–RC8) |
+| 3 | PosClientBackend | `fe9dc860` | Expand warehouse txn whitelist (RC9) — Add Stock / Remove Stock / Damage Stock / Manufacture / Raw Material |
+| 4 | MongoDbService | `9d68f4f8` | `updateProductStockQty` accepts `warehouseDetails` passthrough |
+| 5 | Scheduler | `605b338` | Initial scheduler extension (warehouse correction dry-run gated by flag) |
+| 6 | Scheduler | `e564c50` | **Full Option C port** — cross-biz filter + openingStockWh + Job Work In +1 + qty>0 + two-tier skip semantics |
+
+## Rollout plan
+
+1. ✅ **Phase 4 code pushed to QA** (all 6 commits)
+2. ⏳ **QA verification (1 day bake)** — smoke test a non-restaurant sale, verify:
+   - `maxQuantity −= 1` (not 2)
+   - `availableQuantity == maxQuantity` (not `*2`)
+   - `warehouseDetails[wh].qty −= 1` (previously untouched)
+3. ⏳ **Production tag Phase 4 services** — MongoDbService + PosClientBackend
+4. ⏳ **Production tag Scheduler** (still dry-run default)
+5. ⏳ **First prod scheduler run** — watch for `[WH-DRYRUN]` log lines, pull log, diff against v4 XLSX
+6. ⏳ **If dry-run output matches v4** → flip `stock.correction.warehouse.dryRun=false` for pilot businesses (Tungasree + 1-2 others)
+7. ⏳ **Re-run audit** after pilot — mismatch counts should drop for pilot set
+8. ⏳ **Broaden to all 348 businesses** if pilot clean
 
 ## 1. Problem statement
 
